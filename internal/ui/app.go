@@ -27,7 +27,7 @@ const (
 const (
 	panelCount = 4
 	minWidth   = 60
-	minHeight  = 16
+	minHeight  = 24
 )
 
 var panelTitles = [panelCount]string{"1 Quick Log", "2 Timesheet", "3 Search", "4 History"}
@@ -49,6 +49,7 @@ type Model struct {
 
 	client *jira.Client
 	user   jira.User
+	log    logPanel
 
 	focus         int
 	width, height int
@@ -63,6 +64,7 @@ func New(cfg config.Config, cfgPath string) Model {
 		state:   stateSetup,
 		setup:   newSetup(cfg.JiraURL, cfg.JiraToken),
 		spinner: spinner.New(),
+		log:     newLogPanel(nil, cfg.QuickActions),
 	}
 	if cfg.HasJira() {
 		m.state = stateVerifying
@@ -106,12 +108,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case verifyMsg:
 		return m.handleVerify(msg)
 	case spinner.TickMsg: // update the spinner if we are in the verifying state
-		if m.state != stateVerifying {
-			return m, nil
+		// Ticks for other spinners fall through to the panels
+		if m.state == stateVerifying {
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
 		}
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
 	}
 
 	switch m.state {
@@ -142,24 +144,38 @@ func (m Model) handleVerify(msg verifyMsg) (tea.Model, tea.Cmd) {
 		m.saveOnVerify = false
 	}
 	m.client, m.user, m.state = msg.client, msg.user, stateReady
-	return m, nil
+	m.log.client = msg.client
+	m.log = m.log.setFocused(m.focus == 0)
+	return m, textinput.Blink
 }
 
 // Handles key presses when the UI is in the ready state, allowing the user to switch between panels
 func (m Model) updateReady(msg tea.Msg) (tea.Model, tea.Cmd) {
-	key, ok := msg.(tea.KeyMsg)
-	if !ok {
-		return m, nil
+	if key, ok := msg.(tea.KeyMsg); ok {
+		// Tab is left for the panels to move between their own fields
+		switch key.String() {
+		case "shift+tab":
+			return m.setFocus((m.focus + 1) % panelCount), nil
+		case "alt+1", "alt+2", "alt+3", "alt+4":
+			return m.setFocus(int(key.String()[4] - '1')), nil // jumps to panels 0-3
+		}
+		// Other keys only go to the focused panel
+		if m.focus != 0 {
+			return m, nil
+		}
 	}
-	switch key.String() {
-	case "tab":
-		m.focus = (m.focus + 1) % panelCount
-	case "shift+tab":
-		m.focus = (m.focus + panelCount - 1) % panelCount
-	case "alt+1", "alt+2", "alt+3", "alt+4":
-		m.focus = int(key.String()[4] - '1')
-	}
-	return m, nil
+
+	// Non-key messages (results, spinner ticks) always reach the panel
+	var cmd tea.Cmd
+	m.log, cmd = m.log.Update(msg)
+	return m, cmd
+}
+
+// Moves focus to panel i
+func (m Model) setFocus(i int) Model {
+	m.focus = i
+	m.log = m.log.setFocused(i == 0)
+	return m
 }
 
 // Renders the UI based on the current state and size of the terminal
@@ -192,13 +208,20 @@ func gridSizes(width, height int) (leftW, rightW, topH, bottomH int) {
 	return leftW, rightW, topH, bottomH
 }
 
+// Renders panel i with an outer size of w x h
 func (m Model) panel(i, w, h int) string {
-	body := titleStyle.Render(panelTitles[i]) + "\n" + helpStyle.Render("Coming soon")
-	return panelStyle(i == m.focus, w, h).Render(body)
+	// Inner width: minus border and padding
+	bodyW := w - 4
+
+	body := helpStyle.Render("Coming soon")
+	if i == 0 {
+		body = m.log.View(bodyW)
+	}
+	return panelStyle(i == m.focus, w, h).Render(titleStyle.Render(panelTitles[i]) + "\n" + body)
 }
 
 // Renders the status bar at the bottom of the UI with the current user's name and keyboard shortcuts available
 func (m Model) statusBar() string {
-	text := fmt.Sprintf("Connected as %s • tab: next panel • alt+1-4: jump • ctrl+c: quit", m.user.DisplayName)
+	text := fmt.Sprintf("Connected as %s • shift+tab: next panel • alt+1-4: jump • ctrl+c: quit", m.user.DisplayName)
 	return helpStyle.MaxWidth(m.width).Render(text)
 }

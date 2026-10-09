@@ -3,12 +3,17 @@ package ui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	borderColor = lipgloss.Color("240") // Gray color for the border
-	focusColor  = lipgloss.Color("196") // Red color for the focused border
+	borderColor = lipgloss.Color("240") // Gray
+	focusColor  = lipgloss.Color("196") // Red
 
 	titleStyle = lipgloss.NewStyle().Bold(true)
-	helpStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	helpStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // Gray
+	errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
+
+	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // Green
+
+	buttonStyle         = lipgloss.NewStyle().Padding(0, 1).Background(lipgloss.Color("238"))                                   // Dark gray
+	selectedButtonStyle = lipgloss.NewStyle().Padding(0, 1).Background(focusColor).Foreground(lipgloss.Color("231")).Bold(true) // White on red
 )
 
 // Bordered panel with an outer size of w x h

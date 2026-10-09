@@ -61,9 +61,11 @@ func TestFocusKeys(t *testing.T) {
 		key  tea.KeyMsg
 		want int
 	}{
-		{tea.KeyMsg{Type: tea.KeyTab}, 1},
-		{tea.KeyMsg{Type: tea.KeyShiftTab}, 0},
+		{tea.KeyMsg{Type: tea.KeyShiftTab}, 1},
+		{tea.KeyMsg{Type: tea.KeyTab}, 1}, // tab stays inside the panel
+		{tea.KeyMsg{Type: tea.KeyShiftTab}, 2},
 		{tea.KeyMsg{Type: tea.KeyShiftTab}, 3},
+		{tea.KeyMsg{Type: tea.KeyShiftTab}, 0},
 		{tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}, Alt: true}, 1},
 	}
 	for _, s := range steps {
