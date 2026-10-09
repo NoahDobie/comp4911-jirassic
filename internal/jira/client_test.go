@@ -44,7 +44,7 @@ func TestCurrentUser(t *testing.T) {
 
 func TestAddWorklog(t *testing.T) {
 	c := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/rest/api/2/issue/DEMO-7/worklog" {
+		if r.Method != http.MethodPost || r.URL.Path != "/rest/api/2/issue/DEMO-123/worklog" {
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		var body addWorklogRequest
@@ -85,8 +85,8 @@ func TestErrors(t *testing.T) {
 		body    string
 		wantErr string
 	}{
-		{"unauthorized", http.StatusUnauthorized, "", "authentication failed"},
-		{"forbidden", http.StatusForbidden, "", "permission denied"},
+		{"unauthorized", http.StatusUnauthorized, "", "Authentication failed"},
+		{"forbidden", http.StatusForbidden, "", "Permission denied"},
 		{"jira message", http.StatusBadRequest, `{"errorMessages": ["Issue does not exist"]}`, "Issue does not exist"},
 		{"field error", http.StatusBadRequest, `{"errors":{"timeLogged":"Invalid time"}}`, "timeLogged: Invalid time"},
 		{"no body", http.StatusInternalServerError, "", "unexpected status 500"},
