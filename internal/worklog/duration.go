@@ -13,7 +13,7 @@ import (
 // Matches 1h30m, 1h 30m, 1.5h, 2h, 90m
 var durationPattern = regexp.MustCompile(`^(?:(\d+(?:\.\d+)?)h)?\s*(?:(\d+)m)?$`)
 
-// ParseDuration turns user input like "1h 30m" into a time.Duration
+// Turns user input like "1h 30m" into a time.Duration
 func ParseDuration(s string) (time.Duration, error) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	m := durationPattern.FindStringSubmatch(s)
@@ -38,7 +38,7 @@ func ParseDuration(s string) (time.Duration, error) {
 	return d, nil
 }
 
-// FormatDuration formats a duration the way Jira expects timeSpent value, ex 1h 30m
+// Formats a duration the way Jira expects timeSpent value, ex 1h 30m
 func FormatDuration(d time.Duration) string {
 	mins := int(math.Round(d.Minutes()))
 	h, m := mins/60, mins%60

@@ -13,7 +13,7 @@ import (
 	"jirassic-capstone/internal/worklog"
 )
 
-// QuickAction is a saved worklog the user can submit in one click
+// Saved worklog the user can submit in one click
 type QuickAction struct {
 	Label    string `json:"label"`
 	IssueKey string `json:"issueKey"`
@@ -21,7 +21,7 @@ type QuickAction struct {
 	Comment  string `json:"comment,omitempty"`
 }
 
-// Config is stored locally only
+// App settings, stored locally only
 type Config struct {
 	JiraURL       string        `json:"jiraUrl"`
 	JiraToken     string        `json:"jiraToken"`
@@ -31,7 +31,7 @@ type Config struct {
 	QuickActions  []QuickAction `json:"quickActions"`
 }
 
-// Path returns the default config file location
+// Returns the default config file location
 func Path() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -40,7 +40,7 @@ func Path() (string, error) {
 	return filepath.Join(dir, "jirassic", "config.json"), nil
 }
 
-// Load reads the config at path
+// Reads the config at path
 func Load(path string) (Config, error) {
 	var cfg Config
 	data, err := os.ReadFile(path)
@@ -59,7 +59,7 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-// Save writes the config with owner-only permissions
+// Writes the config with owner-only permissions
 func Save(path string, cfg Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
@@ -74,7 +74,7 @@ func Save(path string, cfg Config) error {
 	return nil
 }
 
-// Rreports whether Jira connection details are filled in
+// Reports whether Jira connection details are filled in
 func (c Config) HasJira() bool {
 	return strings.TrimSpace(c.JiraURL) != "" && strings.TrimSpace(c.JiraToken) != ""
 }
