@@ -49,6 +49,8 @@ Add saved worklogs to `quickActions` in the config file:
 | ← / → | Timesheet: previous / next week |
 | T | Timesheet: back to this week |
 | R | Timesheet: refresh |
+| Enter | Search: run the JQL query, or log time to the selected issue |
+| ↓ / ↑ | Search: move into and through the results |
 | Ctrl+C | Quit |
 
 ## Tests

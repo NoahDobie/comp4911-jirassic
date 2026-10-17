@@ -51,6 +51,7 @@ type Model struct {
 	user      jira.User
 	worklog   logPanel
 	timesheet timesheetPanel
+	search    searchPanel
 
 	focus         int
 	width, height int
@@ -67,6 +68,7 @@ func New(cfg config.Config, cfgPath string) Model {
 		spinner:   spinner.New(),
 		worklog:   newLogPanel(nil, cfg.QuickActions),
 		timesheet: newTimesheet(),
+		search:    newSearchPanel(),
 	}
 	if cfg.HasJira() {
 		m.state = stateVerifying
@@ -148,6 +150,7 @@ func (m Model) handleVerify(msg verifyMsg) (tea.Model, tea.Cmd) {
 	m.client, m.user, m.state = msg.client, msg.user, stateReady
 	m.worklog.client = msg.client
 	m.worklog = m.worklog.setFocused(m.focus == 0)
+	m.search.client = msg.client
 
 	m.timesheet.client, m.timesheet.user = msg.client, msg.user
 	var cmd tea.Cmd
@@ -172,26 +175,36 @@ func (m Model) updateReady(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.worklog, cmd = m.worklog.Update(key)
 		case 1:
 			m.timesheet, cmd = m.timesheet.Update(key)
+		case 2:
+			m.search, cmd = m.search.Update(key)
 		}
 		return m, cmd
 	}
 
+	// A picked search result fills in the quick log form
+	if sel, ok := msg.(issueSelectedMsg); ok {
+		m.worklog = m.worklog.setIssueKey(sel.key)
+		return m.setFocus(0), textinput.Blink
+	}
+
 	// Non-key messages (results, spinner ticks) reach every panel
-	var logCmd, sheetCmd tea.Cmd
+	var logCmd, sheetCmd, searchCmd tea.Cmd
 	m.worklog, logCmd = m.worklog.Update(msg)
 	m.timesheet, sheetCmd = m.timesheet.Update(msg)
+	m.search, searchCmd = m.search.Update(msg)
 
 	// Refresh the timesheet after a worklog is added
 	if sub, ok := msg.(worklogSubmittedMsg); ok && sub.err == nil {
 		m.timesheet, sheetCmd = m.timesheet.load()
 	}
-	return m, tea.Batch(logCmd, sheetCmd)
+	return m, tea.Batch(logCmd, sheetCmd, searchCmd)
 }
 
 // Moves focus to panel i
 func (m Model) setFocus(i int) Model {
 	m.focus = i
 	m.worklog = m.worklog.setFocused(i == 0)
+	m.search = m.search.setFocused(i == 2)
 	return m
 }
 
@@ -236,6 +249,8 @@ func (m Model) panel(i, w, h int) string {
 		body = m.worklog.View(bodyW)
 	case 1:
 		body = m.timesheet.View(bodyW, bodyH)
+	case 2:
+		body = m.search.View(bodyW, bodyH)
 	}
 	return panelStyle(i == m.focus, w, h).Render(titleStyle.Render(panelTitles[i]) + "\n" + body)
 }
@@ -243,8 +258,11 @@ func (m Model) panel(i, w, h int) string {
 // Renders the status bar at the bottom of the UI with the current user's name and keyboard shortcuts available
 func (m Model) statusBar() string {
 	text := fmt.Sprintf("Connected as %s • shift+tab: next panel • alt+1-4: jump • ctrl+c: quit", m.user.DisplayName)
-	if m.focus == 1 {
+	switch m.focus {
+	case 1:
 		text = m.timesheet.help() + " • " + text
+	case 2:
+		text = m.search.help() + " • " + text
 	}
 	return helpStyle.MaxWidth(m.width).Render(text)
 }

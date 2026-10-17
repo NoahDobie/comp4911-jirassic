@@ -61,6 +61,15 @@ func newLogPanel(client *jira.Client, actions []config.QuickAction) logPanel {
 }
 
 // Focuses or blurs the panel so only the active panel shows a cursor
+// Fills the issue field (e.g. from a search result) and moves on to the time field
+// Comes from the search panel when the user picks an issue to log time against
+func (p logPanel) setIssueKey(key string) logPanel {
+	p.inputs[fieldKey].SetValue(key)
+	p.onButtons, p.cursor = false, fieldDuration
+	p.err, p.status = "", ""
+	return p.focusCursor()
+}
+
 func (p logPanel) setFocused(focused bool) logPanel {
 	p.focused = focused
 	return p.focusCursor()
