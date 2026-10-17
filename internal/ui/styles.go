@@ -10,7 +10,8 @@ var (
 	helpStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // Gray
 	errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
 
-	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // Green
+	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))  // Green
+	todayStyle   = lipgloss.NewStyle().Foreground(focusColor).Bold(true) // Bold red
 
 	buttonStyle         = lipgloss.NewStyle().Padding(0, 1).Background(lipgloss.Color("238"))                                   // Dark gray
 	selectedButtonStyle = lipgloss.NewStyle().Padding(0, 1).Background(focusColor).Foreground(lipgloss.Color("231")).Bold(true) // White on red

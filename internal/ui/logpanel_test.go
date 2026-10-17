@@ -196,13 +196,13 @@ func TestKeysOnlyReachFocusedPanel(t *testing.T) {
 	m = m.setFocus(1)
 
 	m = update(t, m, typed("DEMO-1"))
-	if m.log.inputs[fieldKey].Value() != "" {
+	if m.worklog.inputs[fieldKey].Value() != "" {
 		t.Error("typing in another panel should not reach the log panel")
 	}
 
 	m = m.setFocus(0)
 	m = update(t, m, typed("DEMO-1"))
-	if m.log.inputs[fieldKey].Value() != "DEMO-1" {
+	if m.worklog.inputs[fieldKey].Value() != "DEMO-1" {
 		t.Error("typing should reach the focused log panel")
 	}
 }

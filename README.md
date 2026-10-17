@@ -43,9 +43,12 @@ Add saved worklogs to `quickActions` in the config file:
 | Tab | Next button or field in the panel |
 | Alt+1–4 | Jump to a panel |
 | ↑ / ↓ | Move between the quick action buttons and fields |
-| ← / → | Pick a quick action button |
+| ← / → | Quick log: pick a quick action button |
 | Enter | Next field, or log the worklog / quick action |
 | Esc | Clear the form |
+| ← / → | Timesheet: previous / next week |
+| T | Timesheet: back to this week |
+| R | Timesheet: refresh |
 | Ctrl+C | Quit |
 
 ## Tests

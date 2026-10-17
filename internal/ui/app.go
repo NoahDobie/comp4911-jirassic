@@ -47,9 +47,10 @@ type Model struct {
 	setup   setupModel
 	spinner spinner.Model
 
-	client *jira.Client
-	user   jira.User
-	log    logPanel
+	client    *jira.Client
+	user      jira.User
+	worklog   logPanel
+	timesheet timesheetPanel
 
 	focus         int
 	width, height int
@@ -59,12 +60,13 @@ type Model struct {
 // New creates a new Model with the given config and config path
 func New(cfg config.Config, cfgPath string) Model {
 	m := Model{
-		cfg:     cfg,
-		cfgPath: cfgPath,
-		state:   stateSetup,
-		setup:   newSetup(cfg.JiraURL, cfg.JiraToken),
-		spinner: spinner.New(),
-		log:     newLogPanel(nil, cfg.QuickActions),
+		cfg:       cfg,
+		cfgPath:   cfgPath,
+		state:     stateSetup,
+		setup:     newSetup(cfg.JiraURL, cfg.JiraToken),
+		spinner:   spinner.New(),
+		worklog:   newLogPanel(nil, cfg.QuickActions),
+		timesheet: newTimesheet(),
 	}
 	if cfg.HasJira() {
 		m.state = stateVerifying
@@ -144,9 +146,13 @@ func (m Model) handleVerify(msg verifyMsg) (tea.Model, tea.Cmd) {
 		m.saveOnVerify = false
 	}
 	m.client, m.user, m.state = msg.client, msg.user, stateReady
-	m.log.client = msg.client
-	m.log = m.log.setFocused(m.focus == 0)
-	return m, textinput.Blink
+	m.worklog.client = msg.client
+	m.worklog = m.worklog.setFocused(m.focus == 0)
+
+	m.timesheet.client, m.timesheet.user = msg.client, msg.user
+	var cmd tea.Cmd
+	m.timesheet, cmd = m.timesheet.load()
+	return m, tea.Batch(textinput.Blink, cmd)
 }
 
 // Handles key presses when the UI is in the ready state, allowing the user to switch between panels
@@ -160,21 +166,32 @@ func (m Model) updateReady(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.setFocus(int(key.String()[4] - '1')), nil // jumps to panels 0-3
 		}
 		// Other keys only go to the focused panel
-		if m.focus != 0 {
-			return m, nil
+		var cmd tea.Cmd
+		switch m.focus {
+		case 0:
+			m.worklog, cmd = m.worklog.Update(key)
+		case 1:
+			m.timesheet, cmd = m.timesheet.Update(key)
 		}
+		return m, cmd
 	}
 
-	// Non-key messages (results, spinner ticks) always reach the panel
-	var cmd tea.Cmd
-	m.log, cmd = m.log.Update(msg)
-	return m, cmd
+	// Non-key messages (results, spinner ticks) reach every panel
+	var logCmd, sheetCmd tea.Cmd
+	m.worklog, logCmd = m.worklog.Update(msg)
+	m.timesheet, sheetCmd = m.timesheet.Update(msg)
+
+	// Refresh the timesheet after a worklog is added
+	if sub, ok := msg.(worklogSubmittedMsg); ok && sub.err == nil {
+		m.timesheet, sheetCmd = m.timesheet.load()
+	}
+	return m, tea.Batch(logCmd, sheetCmd)
 }
 
 // Moves focus to panel i
 func (m Model) setFocus(i int) Model {
 	m.focus = i
-	m.log = m.log.setFocused(i == 0)
+	m.worklog = m.worklog.setFocused(i == 0)
 	return m
 }
 
@@ -210,12 +227,15 @@ func gridSizes(width, height int) (leftW, rightW, topH, bottomH int) {
 
 // Renders panel i with an outer size of w x h
 func (m Model) panel(i, w, h int) string {
-	// Inner width: minus border and padding
-	bodyW := w - 4
+	// Inner size: minus border and padding, then the title line
+	bodyW, bodyH := w-4, h-3
 
 	body := helpStyle.Render("Coming soon")
-	if i == 0 {
-		body = m.log.View(bodyW)
+	switch i {
+	case 0:
+		body = m.worklog.View(bodyW)
+	case 1:
+		body = m.timesheet.View(bodyW, bodyH)
 	}
 	return panelStyle(i == m.focus, w, h).Render(titleStyle.Render(panelTitles[i]) + "\n" + body)
 }
@@ -223,5 +243,8 @@ func (m Model) panel(i, w, h int) string {
 // Renders the status bar at the bottom of the UI with the current user's name and keyboard shortcuts available
 func (m Model) statusBar() string {
 	text := fmt.Sprintf("Connected as %s • shift+tab: next panel • alt+1-4: jump • ctrl+c: quit", m.user.DisplayName)
+	if m.focus == 1 {
+		text = m.timesheet.help() + " • " + text
+	}
 	return helpStyle.MaxWidth(m.width).Render(text)
 }
