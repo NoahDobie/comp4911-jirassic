@@ -12,3 +12,5 @@ go.work
 go.work.sum
 .env
 /docs
+# Local config holds Jira and Matcha keys, never commit it
+config.json

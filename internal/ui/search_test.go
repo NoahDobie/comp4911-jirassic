@@ -12,6 +12,7 @@ import (
 
 	"jirassic-capstone/internal/config"
 	"jirassic-capstone/internal/jira"
+	"jirassic-capstone/internal/matcha"
 )
 
 func testIssues() []jira.Issue {
@@ -39,7 +40,7 @@ func TestSearchRuns(t *testing.T) {
 func TestSearchEmptyQuery(t *testing.T) {
 	p := newSearchPanel().setFocused(true)
 	p, cmd := p.Update(keyEnter)
-	if cmd != nil || p.loading || p.err != "Enter a JQL query" {
+	if cmd != nil || p.loading || p.err != "Enter JQL or describe the issues you want" {
 		t.Errorf("empty query should not search: err=%q", p.err)
 	}
 }
@@ -174,5 +175,112 @@ func TestKeysReachSearchPanel(t *testing.T) {
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("project = DEMO")})
 	if m.search.input.Value() != "project = DEMO" {
 		t.Errorf("search input = %q", m.search.input.Value())
+	}
+}
+
+// What Jira returns when the input isn't valid JQL
+var badJQL = &jira.StatusError{Code: http.StatusBadRequest, Message: "jira: Error in the JQL Query"}
+
+func TestPlainEnglishFallsBackToMatcha(t *testing.T) {
+	p := newSearchPanel().setFocused(true)
+	p.matcha = matcha.NewClient("http://127.0.0.1:1", "test-key", 42)
+
+	// Tried as JQL first
+	p, _ = p.Update(typed("my open bugs"))
+	p, _ = p.Update(keyEnter)
+	if !p.loading || p.query != "my open bugs" {
+		t.Fatalf("expected a JQL search first: loading=%v query=%q", p.loading, p.query)
+	}
+
+	// Jira can't read it, so the same text goes to Matcha
+	p, cmd := p.Update(searchDoneMsg{seq: p.seq, err: badJQL})
+	if !p.loading || cmd == nil || p.loadText != "Not JQL, asking Matcha..." || p.err != "" {
+		t.Fatalf("expected Matcha to be asked: loading=%v text=%q err=%q", p.loading, p.loadText, p.err)
+	}
+
+	// Matcha's JQL is put in the input, but nothing is searched yet (NFR-04)
+	p, cmd = p.Update(translateDoneMsg{seq: p.seq, jql: "assignee = currentUser() AND type = Bug"})
+	if cmd != nil || p.loading || p.searched {
+		t.Fatal("generated JQL must not run on its own")
+	}
+	if !p.generated || p.input.Value() != "assignee = currentUser() AND type = Bug" {
+		t.Fatalf("generated=%v input=%q", p.generated, p.input.Value())
+	}
+	if !strings.Contains(p.View(60, 9), "Check Matcha's JQL, enter to run") {
+		t.Errorf("confirm hint not shown:\n%s", p.View(60, 9))
+	}
+
+	// The user can edit it, then enter runs it
+	p, _ = p.Update(typed(" AND priority = High"))
+	p, cmd = p.Update(keyEnter)
+	if !p.loading || cmd == nil || p.generated || !p.runGenerated {
+		t.Fatal("enter should run the confirmed JQL")
+	}
+
+	// If Matcha's JQL is also invalid, show Jira's error instead of asking Matcha again
+	p, cmd = p.Update(searchDoneMsg{seq: p.seq, err: badJQL})
+	if p.loading || cmd != nil || !strings.Contains(p.err, "Error in the JQL Query") {
+		t.Errorf("loading=%v err=%q, want Jira's error", p.loading, p.err)
+	}
+}
+
+func TestValidJQLDoesNotUseMatcha(t *testing.T) {
+	p := newSearchPanel().setFocused(true)
+	p.matcha = matcha.NewClient("http://127.0.0.1:1", "test-key", 42)
+	p, _ = p.Update(typed("project = DEMO"))
+	p, _ = p.Update(keyEnter)
+
+	p, cmd := p.Update(searchDoneMsg{seq: p.seq, issues: testIssues()})
+	if cmd != nil || p.loading || len(p.results) != 2 {
+		t.Error("valid JQL should show results without asking Matcha")
+	}
+}
+
+func TestOnlyBadJQLGoesToMatcha(t *testing.T) {
+	tests := []struct {
+		name   string
+		matcha bool
+		err    error
+	}{
+		{"no matcha set up", false, badJQL},
+		{"auth error", true, &jira.StatusError{Code: http.StatusUnauthorized, Message: "Authentication failed: check your Jira PAT"}},
+		{"connection error", true, errors.New("connect to Jira: timeout")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newSearchPanel().setFocused(true)
+			if tt.matcha {
+				p.matcha = matcha.NewClient("http://127.0.0.1:1", "test-key", 42)
+			}
+			p, _ = p.Update(typed("my open bugs"))
+			p, _ = p.Update(keyEnter)
+
+			p, cmd := p.Update(searchDoneMsg{seq: p.seq, err: tt.err})
+			if p.loading || cmd != nil || p.err != tt.err.Error() {
+				t.Errorf("loading=%v err=%q, want the error shown", p.loading, p.err)
+			}
+		})
+	}
+}
+
+func TestMatchaError(t *testing.T) {
+	p := newSearchPanel()
+	p.seq, p.loading = 1, true
+	p, _ = p.Update(translateDoneMsg{seq: 1, err: errors.New("Matcha couldn't make JQL: not a Jira search")})
+
+	if p.loading || !strings.Contains(p.err, "not a Jira search") {
+		t.Errorf("loading=%v err=%q", p.loading, p.err)
+	}
+}
+
+func TestRunTranslateCmd(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"status":"completed","output":[{"content":[{"type":"output_text","text":"{\"jql\":\"project = DEMO\"}"}]}]}`))
+	}))
+	defer srv.Close()
+
+	msg := runTranslate(matcha.NewClient(srv.URL, "test-key", 42), "everything in DEMO", 5)().(translateDoneMsg)
+	if msg.err != nil || msg.seq != 5 || msg.jql != "project = DEMO" {
+		t.Errorf("unexpected result: %+v", msg)
 	}
 }

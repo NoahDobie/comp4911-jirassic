@@ -13,6 +13,7 @@ var (
 	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))  // Green
 	todayStyle   = lipgloss.NewStyle().Foreground(focusColor).Bold(true) // Bold red
 
+	askStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)             // Bold orange
 	selectedRowStyle = lipgloss.NewStyle().Background(focusColor).Foreground(lipgloss.Color("231")) // White on red
 
 	buttonStyle         = lipgloss.NewStyle().Padding(0, 1).Background(lipgloss.Color("238"))                                   // Dark gray

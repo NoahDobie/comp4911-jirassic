@@ -37,8 +37,13 @@ func TestSaveAndLoad(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
-	if !got.HasJira() {
-		t.Error("expected HasJira to be true")
+	if !got.HasJira() || got.HasMatcha() {
+		t.Error("expected Jira details but no Matcha details")
+	}
+
+	got.MatchaURL, got.MatchaKey, got.MatchaMission = "https://matcha.example.com", "test-key", 42
+	if !got.HasMatcha() {
+		t.Error("expected HasMatcha to be true")
 	}
 }
 

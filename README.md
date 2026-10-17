@@ -35,6 +35,24 @@ Add saved worklogs to `quickActions` in the config file:
 ]
 ```
 
+## Natural language search (optional)
+
+The search panel can turn plain English into JQL using a Matcha Mission. Add these to the
+config file:
+
+```json
+"matchaUrl": "<Matcha base URL>",
+"matchaKey": "<your Matcha API key>",
+"matchaMission": 123
+```
+
+Type either JQL or plain English in the search panel. Anything Jira can't read as JQL is
+sent to Matcha, and the JQL it returns is placed in the search box to check or edit. It only
+runs when you press Enter. JQL search works without Matcha.
+
+The config file holds your Jira token and Matcha key. Keep it out of the repo and never
+share it.
+
 ## Keys
 
 | Key | Action |
@@ -49,7 +67,7 @@ Add saved worklogs to `quickActions` in the config file:
 | ← / → | Timesheet: previous / next week |
 | T | Timesheet: back to this week |
 | R | Timesheet: refresh |
-| Enter | Search: run the JQL query, or log time to the selected issue |
+| Enter | Search: search (JQL or plain English), or log time to the selected issue |
 | ↓ / ↑ | Search: move into and through the results |
 | Ctrl+C | Quit |
 

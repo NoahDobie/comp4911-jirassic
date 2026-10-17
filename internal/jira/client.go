@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -77,13 +78,21 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	return nil
 }
 
+// Error from Jira that keeps the HTTP status, so callers can tell e.g. bad JQL (400) apart
+type StatusError struct {
+	Code    int
+	Message string
+}
+
+func (e *StatusError) Error() string { return e.Message }
+
 // Turns a failed response into a short, readable error
 func statusError(resp *http.Response) error {
 	switch resp.StatusCode {
 	case http.StatusUnauthorized:
-		return fmt.Errorf("Authentication failed: check your Jira PAT")
+		return &StatusError{resp.StatusCode, "Authentication failed: check your Jira PAT"}
 	case http.StatusForbidden:
-		return fmt.Errorf("Permission denied by Jira")
+		return &StatusError{resp.StatusCode, "Permission denied by Jira"}
 	}
 
 	var e errorBody
@@ -93,8 +102,14 @@ func statusError(resp *http.Response) error {
 			msgs = append(msgs, field+": "+msg)
 		}
 		if len(msgs) > 0 {
-			return fmt.Errorf("jira: %s", strings.Join(msgs, "; "))
+			return &StatusError{resp.StatusCode, "jira: " + strings.Join(msgs, "; ")}
 		}
 	}
-	return fmt.Errorf("jira: unexpected status %s", resp.Status)
+	return &StatusError{resp.StatusCode, "jira: unexpected status " + resp.Status}
+}
+
+// Reports whether err means Jira couldn't understand the request, ex. invalid JQL
+func IsBadRequest(err error) bool {
+	var se *StatusError
+	return errors.As(err, &se) && se.Code == http.StatusBadRequest
 }

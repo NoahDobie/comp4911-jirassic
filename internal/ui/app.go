@@ -12,6 +12,7 @@ import (
 
 	"jirassic-capstone/internal/config"
 	"jirassic-capstone/internal/jira"
+	"jirassic-capstone/internal/matcha"
 )
 
 type state int
@@ -151,6 +152,9 @@ func (m Model) handleVerify(msg verifyMsg) (tea.Model, tea.Cmd) {
 	m.worklog.client = msg.client
 	m.worklog = m.worklog.setFocused(m.focus == 0)
 	m.search.client = msg.client
+	if m.cfg.HasMatcha() {
+		m.search.matcha = matcha.NewClient(m.cfg.MatchaURL, m.cfg.MatchaKey, m.cfg.MatchaMission)
+	}
 
 	m.timesheet.client, m.timesheet.user = msg.client, msg.user
 	var cmd tea.Cmd

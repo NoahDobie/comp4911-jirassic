@@ -111,3 +111,21 @@ func TestConnectionError(t *testing.T) {
 		t.Error("expected connection error")
 	}
 }
+
+func TestIsBadRequest(t *testing.T) {
+	for _, tt := range []struct {
+		status int
+		want   bool
+	}{{http.StatusBadRequest, true}, {http.StatusUnauthorized, false}, {http.StatusInternalServerError, false}} {
+		c := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(tt.status)
+		})
+		_, err := c.Search(context.Background(), "not jql", 10)
+		if got := IsBadRequest(err); got != tt.want {
+			t.Errorf("status %d: IsBadRequest = %v, want %v", tt.status, got, tt.want)
+		}
+	}
+	if IsBadRequest(nil) {
+		t.Error("nil is not a bad request")
+	}
+}

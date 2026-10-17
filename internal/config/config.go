@@ -27,7 +27,7 @@ type Config struct {
 	JiraToken     string        `json:"jiraToken"`
 	MatchaURL     string        `json:"matchaUrl,omitempty"`
 	MatchaKey     string        `json:"matchaKey,omitempty"`
-	MatchaMission string        `json:"matchaMission,omitempty"`
+	MatchaMission int           `json:"matchaMission,omitempty"`
 	QuickActions  []QuickAction `json:"quickActions"`
 }
 
@@ -77,6 +77,11 @@ func Save(path string, cfg Config) error {
 // Reports whether Jira connection details are filled in
 func (c Config) HasJira() bool {
 	return strings.TrimSpace(c.JiraURL) != "" && strings.TrimSpace(c.JiraToken) != ""
+}
+
+// Reports whether Matcha details are filled in (natural language search is optional)
+func (c Config) HasMatcha() bool {
+	return strings.TrimSpace(c.MatchaURL) != "" && strings.TrimSpace(c.MatchaKey) != "" && c.MatchaMission > 0
 }
 
 func (c Config) validateQuickActions() error {
