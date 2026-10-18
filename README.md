@@ -69,6 +69,8 @@ share it.
 | R | Timesheet: refresh |
 | Enter | Search: search (JQL or plain English), or log time to the selected issue |
 | ↓ / ↑ | Search: move into and through the results |
+| ↑ / ↓ | History: move through recent worklogs |
+| R | History: refresh |
 | Ctrl+C | Quit |
 
 ## Tests

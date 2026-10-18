@@ -53,6 +53,7 @@ type Model struct {
 	worklog   logPanel
 	timesheet timesheetPanel
 	search    searchPanel
+	history   historyPanel
 
 	focus         int
 	width, height int
@@ -70,6 +71,7 @@ func New(cfg config.Config, cfgPath string) Model {
 		worklog:   newLogPanel(nil, cfg.QuickActions),
 		timesheet: newTimesheet(),
 		search:    newSearchPanel(),
+		history:   newHistoryPanel(),
 	}
 	if cfg.HasJira() {
 		m.state = stateVerifying
@@ -157,9 +159,11 @@ func (m Model) handleVerify(msg verifyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.timesheet.client, m.timesheet.user = msg.client, msg.user
-	var cmd tea.Cmd
-	m.timesheet, cmd = m.timesheet.load()
-	return m, tea.Batch(textinput.Blink, cmd)
+	m.history.client, m.history.user = msg.client, msg.user
+	var sheetCmd, historyCmd tea.Cmd
+	m.timesheet, sheetCmd = m.timesheet.load()
+	m.history, historyCmd = m.history.load()
+	return m, tea.Batch(textinput.Blink, sheetCmd, historyCmd)
 }
 
 // Handles key presses when the UI is in the ready state, allowing the user to switch between panels
@@ -181,6 +185,8 @@ func (m Model) updateReady(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.timesheet, cmd = m.timesheet.Update(key)
 		case 2:
 			m.search, cmd = m.search.Update(key)
+		case 3:
+			m.history, cmd = m.history.Update(key)
 		}
 		return m, cmd
 	}
@@ -192,16 +198,18 @@ func (m Model) updateReady(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Non-key messages (results, spinner ticks) reach every panel
-	var logCmd, sheetCmd, searchCmd tea.Cmd
+	var logCmd, sheetCmd, searchCmd, historyCmd tea.Cmd
 	m.worklog, logCmd = m.worklog.Update(msg)
 	m.timesheet, sheetCmd = m.timesheet.Update(msg)
 	m.search, searchCmd = m.search.Update(msg)
+	m.history, historyCmd = m.history.Update(msg)
 
-	// Refresh the timesheet after a worklog is added
+	// Refresh the timesheet and history after a worklog is added
 	if sub, ok := msg.(worklogSubmittedMsg); ok && sub.err == nil {
 		m.timesheet, sheetCmd = m.timesheet.load()
+		m.history, historyCmd = m.history.load()
 	}
-	return m, tea.Batch(logCmd, sheetCmd, searchCmd)
+	return m, tea.Batch(logCmd, sheetCmd, searchCmd, historyCmd)
 }
 
 // Moves focus to panel i
@@ -209,6 +217,7 @@ func (m Model) setFocus(i int) Model {
 	m.focus = i
 	m.worklog = m.worklog.setFocused(i == 0)
 	m.search = m.search.setFocused(i == 2)
+	m.history = m.history.setFocused(i == 3)
 	return m
 }
 
@@ -247,7 +256,7 @@ func (m Model) panel(i, w, h int) string {
 	// Inner size: minus border and padding, then the title line
 	bodyW, bodyH := w-4, h-3
 
-	body := helpStyle.Render("Coming soon")
+	var body string
 	switch i {
 	case 0:
 		body = m.worklog.View(bodyW)
@@ -255,6 +264,8 @@ func (m Model) panel(i, w, h int) string {
 		body = m.timesheet.View(bodyW, bodyH)
 	case 2:
 		body = m.search.View(bodyW, bodyH)
+	case 3:
+		body = m.history.View(bodyW, bodyH)
 	}
 	return panelStyle(i == m.focus, w, h).Render(titleStyle.Render(panelTitles[i]) + "\n" + body)
 }
@@ -267,6 +278,8 @@ func (m Model) statusBar() string {
 		text = m.timesheet.help() + " • " + text
 	case 2:
 		text = m.search.help() + " • " + text
+	case 3:
+		text = m.history.help() + " • " + text
 	}
 	return helpStyle.MaxWidth(m.width).Render(text)
 }
