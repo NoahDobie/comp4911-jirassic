@@ -21,7 +21,7 @@ type Entry struct {
 func NewEntry(issueKey, duration, comment string, started time.Time) (Entry, error) {
 	key := strings.ToUpper(strings.TrimSpace(issueKey))
 	if !issueKeyPattern.MatchString(key) {
-		return Entry{}, fmt.Errorf("invalid issue key %q (expected e.g. DEMO-123)", issueKey)
+		return Entry{}, fmt.Errorf("invalid issue key %q (expected ex. DEMO-123)", issueKey)
 	}
 
 	d, err := ParseDuration(duration)

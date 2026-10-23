@@ -78,7 +78,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	return nil
 }
 
-// Error from Jira that keeps the HTTP status, so callers can tell e.g. bad JQL (400) apart
+// Error from Jira that keeps the HTTP status, so callers can tell ex. bad JQL (400) apart
 type StatusError struct {
 	Code    int
 	Message string

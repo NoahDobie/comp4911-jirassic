@@ -53,7 +53,7 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse config %s: %w", path, err)
 	}
-	if err := cfg.validateQuickActions(); err != nil {
+	if err := cfg.ValidateQuickActions(); err != nil {
 		return cfg, err
 	}
 	return cfg, nil
@@ -84,7 +84,8 @@ func (c Config) HasMatcha() bool {
 	return strings.TrimSpace(c.MatchaURL) != "" && strings.TrimSpace(c.MatchaKey) != "" && c.MatchaMission > 0
 }
 
-func (c Config) validateQuickActions() error {
+// Checks each quick action has a label and would make a valid worklog
+func (c Config) ValidateQuickActions() error {
 	for i, a := range c.QuickActions {
 		if strings.TrimSpace(a.Label) == "" {
 			return fmt.Errorf("quick action %d: label is required", i+1)

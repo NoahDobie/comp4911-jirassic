@@ -31,7 +31,7 @@ type translateDoneMsg struct {
 	err error
 }
 
-const searchPlaceholder = "JQL or plain English, e.g. my open bugs"
+const searchPlaceholder = "JQL or plain English, ex. my open bugs"
 
 // Sent when the user picks a result to log time against
 type issueSelectedMsg struct {

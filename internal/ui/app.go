@@ -54,6 +54,9 @@ type Model struct {
 	search    searchPanel
 	history   historyPanel
 
+	settings     settingsModel
+	showSettings bool
+
 	focus         int
 	width, height int
 	saveOnVerify  bool
@@ -113,6 +116,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.saveOnVerify = true
 		return m, tea.Batch(m.spinner.Tick, verify(msg.url, msg.token))
 	case verifyMsg:
+		if m.showSettings {
+			return m.handleSettingsVerify(msg)
+		}
 		return m.handleVerify(msg)
 	case spinner.TickMsg:
 		// Ticks for other spinners fall through to the panels
@@ -150,13 +156,17 @@ func (m Model) handleVerify(msg verifyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.saveOnVerify = false
 	}
-	m.user, m.state = msg.user, stateReady
+	m.state = stateReady
+	return m.connect(msg)
+}
+
+// Hands the verified client and user to the panels and loads their data
+func (m Model) connect(msg verifyMsg) (tea.Model, tea.Cmd) {
+	m.user = msg.user
 	m.worklog.client = msg.client
 	m.worklog = m.worklog.setFocused(m.focus == 0)
 	m.search.client = msg.client
-	if m.cfg.HasMatcha() {
-		m.search.matcha = matcha.NewClient(m.cfg.MatchaURL, m.cfg.MatchaKey, m.cfg.MatchaMission)
-	}
+	m = m.applyConfig(m.cfg)
 
 	m.timesheet.client, m.timesheet.user = msg.client, msg.user
 	m.history.client, m.history.user = msg.client, msg.user
@@ -166,11 +176,60 @@ func (m Model) handleVerify(msg verifyMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(textinput.Blink, sheetCmd, historyCmd)
 }
 
+// Uses cfg from now on: its quick actions and the optional Matcha client
+func (m Model) applyConfig(cfg config.Config) Model {
+	m.cfg = cfg
+	m.worklog = m.worklog.setActions(cfg.QuickActions)
+	m.search.matcha = nil
+	if cfg.HasMatcha() {
+		m.search.matcha = matcha.NewClient(cfg.MatchaURL, cfg.MatchaKey, cfg.MatchaMission)
+	}
+	return m
+}
+
+// Saves new settings, checking the Jira connection first if those details changed
+func (m Model) saveSettings(cfg config.Config) (tea.Model, tea.Cmd) {
+	if cfg.JiraURL != m.cfg.JiraURL || cfg.JiraToken != m.cfg.JiraToken {
+		m.settings.checking, m.settings.pending = true, cfg
+		return m, tea.Batch(m.settings.spinner.Tick, verify(cfg.JiraURL, cfg.JiraToken))
+	}
+	if err := config.Save(m.cfgPath, cfg); err != nil {
+		m.settings.err = err.Error()
+		return m, nil
+	}
+	m.showSettings = false
+	return m.applyConfig(cfg), textinput.Blink
+}
+
+// Keeps settings open with the error if the new Jira details fail, otherwise saves and reconnects
+func (m Model) handleSettingsVerify(msg verifyMsg) (tea.Model, tea.Cmd) {
+	m.settings.checking = false
+	if msg.err != nil {
+		m.settings.err = msg.err.Error()
+		return m, nil
+	}
+	if err := config.Save(m.cfgPath, m.settings.pending); err != nil {
+		m.settings.err = err.Error()
+		return m, nil
+	}
+	m.cfg, m.showSettings = m.settings.pending, false
+	return m.connect(msg)
+}
+
 // Handles key presses when the UI is in the ready state, allowing the user to switch between panels
 func (m Model) updateReady(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
+		// The settings pop-up takes every key while it's open
+		if m.showSettings {
+			var cmd tea.Cmd
+			m.settings, cmd = m.settings.Update(key)
+			return m, cmd
+		}
 		// Tab is left for the panels to move between their own fields
 		switch key.String() {
+		case "ctrl+x":
+			m.settings, m.showSettings = newSettings(m.cfg), true
+			return m, textinput.Blink
 		case "shift+tab":
 			return m.setFocus((m.focus + 1) % panelCount), nil
 		case "alt+1", "alt+2", "alt+3", "alt+4":
@@ -191,14 +250,23 @@ func (m Model) updateReady(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// A picked search result fills in the quick log form
-	if sel, ok := msg.(issueSelectedMsg); ok {
-		m.worklog = m.worklog.setIssueKey(sel.key)
+	switch msg := msg.(type) {
+	case issueSelectedMsg:
+		// A picked search result fills in the quick log form
+		m.worklog = m.worklog.setIssueKey(msg.key)
 		return m.setFocus(0), textinput.Blink
+	case settingsCloseMsg:
+		m.showSettings = false
+		return m, textinput.Blink
+	case settingsSaveMsg:
+		return m.saveSettings(msg.cfg)
 	}
 
-	// Non-key messages (results, spinner ticks) reach every panel
-	var logCmd, sheetCmd, searchCmd, historyCmd tea.Cmd
+	// Non-key messages (results, spinner ticks) reach every panel, and settings when open
+	var settingsCmd, logCmd, sheetCmd, searchCmd, historyCmd tea.Cmd
+	if m.showSettings {
+		m.settings, settingsCmd = m.settings.Update(msg)
+	}
 	m.worklog, logCmd = m.worklog.Update(msg)
 	m.timesheet, sheetCmd = m.timesheet.Update(msg)
 	m.search, searchCmd = m.search.Update(msg)
@@ -209,7 +277,7 @@ func (m Model) updateReady(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.timesheet, sheetCmd = m.timesheet.load()
 		m.history, historyCmd = m.history.load()
 	}
-	return m, tea.Batch(logCmd, sheetCmd, searchCmd, historyCmd)
+	return m, tea.Batch(settingsCmd, logCmd, sheetCmd, searchCmd, historyCmd)
 }
 
 // Moves focus to panel i
@@ -231,6 +299,9 @@ func (m Model) View() string {
 	}
 	if m.width < minWidth || m.height < minHeight {
 		return fmt.Sprintf("Terminal too small (%dx%d), need a minimum size of: %dx%d", m.width, m.height, minWidth, minHeight)
+	}
+	if m.showSettings {
+		return m.settings.View(m.width, m.height)
 	}
 
 	// 2x2 grid of panels with a status bar at the bottom
@@ -271,7 +342,7 @@ func (m Model) panel(i, w, h int) string {
 
 // Renders the status bar at the bottom of the UI with the current user's name and keyboard shortcuts available
 func (m Model) statusBar() string {
-	text := fmt.Sprintf("Connected as %s • shift+tab: next panel • alt+1-4: jump • ctrl+c: quit", m.user.DisplayName)
+	text := fmt.Sprintf("Connected as %s • shift+tab: next panel • alt+1-4: jump • ctrl+x: settings • ctrl+c: quit", m.user.DisplayName)
 	switch m.focus {
 	case 1:
 		text = m.timesheet.help() + " • " + text

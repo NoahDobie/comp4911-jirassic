@@ -52,7 +52,7 @@ type logPanel struct {
 
 func newLogPanel(client *jira.Client, actions []config.QuickAction) logPanel {
 	p := logPanel{client: client, actions: actions, spinner: spinner.New()}
-	placeholders := [fieldCount]string{"DEMO-123", "1h 30m", "now, or e.g. mon 9:30am", "optional"}
+	placeholders := [fieldCount]string{"DEMO-123", "1h 30m", "now, or ex. mon 9:30am", "optional"}
 	for i := range p.inputs {
 		p.inputs[i] = textinput.New()
 		p.inputs[i].Placeholder = placeholders[i]
@@ -60,11 +60,20 @@ func newLogPanel(client *jira.Client, actions []config.QuickAction) logPanel {
 	return p
 }
 
-// Fills the issue field (e.g. from a search result) and moves on to the time field
+// Fills the issue field (from a search result) and moves on to the time field
 func (p logPanel) setIssueKey(key string) logPanel {
 	p.inputs[fieldKey].SetValue(key)
 	p.onButtons, p.cursor = false, fieldDuration
 	p.err, p.status = "", ""
+	return p.focusCursor()
+}
+
+// Swaps in new quick actions, ex. after settings are saved
+func (p logPanel) setActions(actions []config.QuickAction) logPanel {
+	p.actions, p.button = actions, 0
+	if len(actions) == 0 {
+		p.onButtons = false
+	}
 	return p.focusCursor()
 }
 
@@ -105,7 +114,7 @@ func (p logPanel) Update(msg tea.Msg) (logPanel, tea.Cmd) {
 		return p.handleKey(msg)
 	}
 
-	// Other messages (e.g. cursor blink) go to the selected field
+	// Other messages (ex. cursor blink) go to the selected field
 	if p.onButtons {
 		return p, nil
 	}
@@ -276,7 +285,7 @@ func (p logPanel) View(width int) string {
 // Quick actions as a row of buttons, wrapping onto more lines if needed
 func (p logPanel) buttonsView(width int) string {
 	if len(p.actions) == 0 {
-		return helpStyle.Render("No quick actions yet - add some!")
+		return helpStyle.Render("No quick actions yet - ctrl+x to add some")
 	}
 
 	var lines []string

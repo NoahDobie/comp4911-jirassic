@@ -41,7 +41,7 @@ func (r issueRow) total() time.Duration {
 type timesheetPanel struct {
 	client  *jira.Client
 	user    jira.User
-	offset  int // weeks from this week, e.g. -1 is last week
+	offset  int // weeks from this week, ex. -1 is last week
 	rows    []issueRow
 	loading bool
 	spinner spinner.Model

@@ -76,7 +76,7 @@ func (s setupModel) submit() (setupModel, tea.Cmd) {
 func validateSetup(jiraURL, token string) error {
 	u, err := url.Parse(jiraURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return errors.New("Enter a full Jira URL, e.g. https://jira.example.com")
+		return errors.New("Enter a full Jira URL, ex. https://jira.example.com")
 	}
 	if token == "" {
 		return errors.New("Enter your Jira personal access token")
