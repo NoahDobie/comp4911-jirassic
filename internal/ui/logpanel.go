@@ -153,7 +153,7 @@ func (p logPanel) handleKey(key tea.KeyMsg) (logPanel, tea.Cmd) {
 			p.cursor++
 			return p.focusCursor(), nil
 		}
-		return p.submit(p.inputs[fieldKey].Value(), p.inputs[fieldDuration].Value(), p.inputs[fieldStarted].Value(), p.inputs[fieldComment].Value())
+		return p.submit()
 	}
 
 	var cmd tea.Cmd
@@ -178,7 +178,7 @@ func (p logPanel) next() logPanel {
 	return p
 }
 
-// Left/right picks a button, enter logs it, down goes back to the form
+// Left/right picks a button, enter fills the form with it, down goes back to the form
 func (p logPanel) handleButtonKey(key tea.KeyMsg) (logPanel, tea.Cmd) {
 	switch key.String() {
 	case "left":
@@ -193,20 +193,30 @@ func (p logPanel) handleButtonKey(key tea.KeyMsg) (logPanel, tea.Cmd) {
 		p.onButtons = false
 		return p.focusCursor(), nil
 	case "enter":
-		a := p.actions[p.button]
-		return p.submit(a.IssueKey, a.Duration, "", a.Comment)
+		return p.fillAction(p.actions[p.button]), textinput.Blink
 	}
 	return p, nil
 }
 
-// Validates the input and starts posting the worklog in the background
-func (p logPanel) submit(key, duration, started, comment string) (logPanel, tea.Cmd) {
-	start, err := worklog.ParseStartTime(started, time.Now())
+// Fills the form from a quick action and moves to the start time, the one field it leaves empty
+func (p logPanel) fillAction(a config.QuickAction) logPanel {
+	p.inputs[fieldKey].SetValue(a.IssueKey)
+	p.inputs[fieldDuration].SetValue(a.Duration)
+	p.inputs[fieldStarted].Reset()
+	p.inputs[fieldComment].SetValue(a.Comment)
+	p.onButtons, p.cursor = false, fieldStarted
+	p.err, p.status = "", ""
+	return p.focusCursor()
+}
+
+// Validates the form and starts posting the worklog in the background
+func (p logPanel) submit() (logPanel, tea.Cmd) {
+	start, err := worklog.ParseStartTime(p.inputs[fieldStarted].Value(), time.Now())
 	if err != nil {
 		p.err, p.status = err.Error(), ""
 		return p, nil
 	}
-	entry, err := worklog.NewEntry(key, duration, comment, start)
+	entry, err := worklog.NewEntry(p.inputs[fieldKey].Value(), p.inputs[fieldDuration].Value(), p.inputs[fieldComment].Value(), start)
 	if err != nil {
 		p.err, p.status = err.Error(), ""
 		return p, nil
@@ -234,11 +244,7 @@ func (p logPanel) handleSubmitted(msg worklogSubmittedMsg) logPanel {
 		p.err, p.status = msg.err.Error(), ""
 		return p
 	}
-	// Keep the form as-is if a quick action was used
-	if !p.onButtons {
-		p = p.clear()
-	}
-	p.err = ""
+	p = p.clear()
 	p.status = fmt.Sprintf("Logged %s to %s", worklog.FormatDuration(msg.entry.Duration), msg.entry.IssueKey)
 	return p
 }
@@ -273,9 +279,9 @@ func (p logPanel) View(width int) string {
 	case p.status != "":
 		b.WriteString(successStyle.Render("✓ " + p.status))
 	case p.focused && p.onButtons:
-		// Show what the selected button will log
+		// Show what the selected button will fill in
 		a := p.actions[p.button]
-		b.WriteString(helpStyle.Render(fmt.Sprintf("%s · %s · enter to log", a.IssueKey, a.Duration)))
+		b.WriteString(helpStyle.Render(fmt.Sprintf("%s · %s · enter to fill", a.IssueKey, a.Duration)))
 	default:
 		b.WriteString(helpStyle.Render("tab next • enter log • esc clear"))
 	}

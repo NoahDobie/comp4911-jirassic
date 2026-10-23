@@ -98,27 +98,44 @@ func TestLogPanelSubmitError(t *testing.T) {
 	}
 }
 
-// Tests that the log panel submits a user-defined quick action correctly and handles the response
+// Tests that a quick action fills the form instead of submitting, so it can be checked first
 func TestLogPanelQuickAction(t *testing.T) {
 	p := newLogPanel(nil, testActions()).setFocused(true)
 
+	// Type into the form, go up to the Standup button, and pick it - it replaces what was typed
+	p, _ = send(p, typed("DEMO-9"), keyEnter, typed("2h"), keyUp, keyUp, keyEnter)
+	if p.submitting {
+		t.Fatal("a quick action should not submit by itself")
+	}
+	if p.inputs[fieldKey].Value() != "DEMO-1" || p.inputs[fieldDuration].Value() != "15m" || p.inputs[fieldComment].Value() != "Daily standup" {
+		t.Errorf("form not filled: %q %q %q", p.inputs[fieldKey].Value(), p.inputs[fieldDuration].Value(), p.inputs[fieldComment].Value())
+	}
+	if p.cursor != fieldStarted {
+		t.Errorf("cursor = %d, want the start time field", p.cursor)
+	}
+
+	// Enter past the comment submits as normal
+	p, cmd := send(p, keyEnter, keyEnter)
+	if !p.submitting || cmd == nil || p.status != "Logging 15m to DEMO-1..." {
+		t.Errorf("expected submit, submitting=%v status=%q err=%q", p.submitting, p.status, p.err)
+	}
+}
+
+func TestLogPanelQuickActionButton(t *testing.T) {
+	p := newLogPanel(nil, testActions()).setFocused(true)
+
 	// Up from the first field selects the buttons, right moves past the last one
-	p, cmd := send(p, keyUp, keyRight, keyRight, keyEnter)
+	p, _ = send(p, keyUp, keyRight, keyRight)
 	if !p.onButtons || p.button != 1 {
 		t.Fatalf("onButtons=%v button=%d, want true 1", p.onButtons, p.button)
 	}
-	if !p.submitting || cmd == nil {
-		t.Fatal("expected quick action to submit")
-	}
-	if p.status != "Logging 1h to DEMO-2..." {
-		t.Errorf("status = %q", p.status)
-	}
+	p, cmd := send(p, keyEnter)
 
-	// Typed form values are kept after a quick action
-	p, _ = send(p, worklogSubmittedMsg{entry: worklog.Entry{IssueKey: "DEMO-2", Duration: time.Hour}})
-	p, _ = send(p, keyDown, typed("DEMO-9"))
-	if p.onButtons || p.inputs[fieldKey].Value() != "DEMO-9" {
-		t.Error("down should return to the form")
+	if p.submitting || p.onButtons || p.inputs[fieldKey].Value() != "DEMO-2" || p.inputs[fieldDuration].Value() != "1h" {
+		t.Errorf("enter on Review should fill the form, got submitting=%v onButtons=%v key=%q", p.submitting, p.onButtons, p.inputs[fieldKey].Value())
+	}
+	if cmd == nil {
+		t.Error("expected the cursor blink to start")
 	}
 }
 
