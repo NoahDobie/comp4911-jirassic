@@ -183,7 +183,7 @@ func (p timesheetPanel) View(width, height int) string {
 	if p.offset == 0 {
 		label += " (this week)"
 	}
-	right := formatHours(totals.total()) + "h"
+	right := formatTotal(totals.total())
 	if p.loading {
 		right = p.spinner.View()
 	}
@@ -264,6 +264,11 @@ func formatHours(d time.Duration) string {
 		return "-"
 	}
 	return fmt.Sprintf("%.1f", math.Round(d.Hours()*10)/10)
+}
+
+// Formats a total with an h, showing 0.0h rather than - when nothing is logged
+func formatTotal(d time.Duration) string {
+	return fmt.Sprintf("%.1fh", math.Round(d.Hours()*10)/10)
 }
 
 // Keys shown in the status bar while this panel is focused

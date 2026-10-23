@@ -63,6 +63,15 @@ func TestFormatHours(t *testing.T) {
 	}
 }
 
+func TestFormatTotal(t *testing.T) {
+	if got := formatTotal(0); got != "0.0h" {
+		t.Errorf("formatTotal(0) = %q, want 0.0h", got)
+	}
+	if got := formatTotal(90 * time.Minute); got != "1.5h" {
+		t.Errorf("formatTotal(90m) = %q, want 1.5h", got)
+	}
+}
+
 func TestTimesheetWeekKeys(t *testing.T) {
 	keyLeft := tea.KeyMsg{Type: tea.KeyLeft}
 	steps := []struct {

@@ -263,7 +263,7 @@ func (p logPanel) clear() logPanel {
 // Renders the panel body to fit inside the given width
 func (p logPanel) View(width int) string {
 	var b strings.Builder
-	b.WriteString(p.buttonsView(width) + "\n")
+	b.WriteString(p.buttonsView(width) + "\n\n") // gap between the buttons and the form
 
 	for i, in := range p.inputs {
 		in.Width = max(width-labelWidth-3, 1) // 2 for the prompt, 1 for the cursor

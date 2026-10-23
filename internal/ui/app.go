@@ -299,8 +299,8 @@ func gridSizes(width, height int) (leftW, rightW, topH, bottomH int) {
 
 // Renders panel i with an outer size of w x h
 func (m Model) panel(i, w, h int) string {
-	// Inner size: minus border and padding, then the title line
-	bodyW, bodyH := w-4, h-3
+	// Inner size: minus border and padding, then the title line and the gap below it
+	bodyW, bodyH := w-4, h-4
 
 	var body string
 	switch i {
@@ -313,7 +313,7 @@ func (m Model) panel(i, w, h int) string {
 	case 3:
 		body = m.history.View(bodyW, bodyH)
 	}
-	return panelStyle(i == m.focus, w, h).Render(titleStyle.Render(panelTitles[i]) + "\n" + body)
+	return panelStyle(i == m.focus, w, h).Render(titleStyle.Render(panelTitles[i]) + "\n\n" + body)
 }
 
 // Renders the status bar at the bottom of the UI with the current user's name and keyboard shortcuts available

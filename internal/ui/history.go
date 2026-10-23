@@ -112,7 +112,7 @@ func (p historyPanel) View(width, height int) string {
 	}
 
 	label := fmt.Sprintf("Last %d days", historyDays)
-	right := fmt.Sprintf("%d logs · %sh", len(p.logs), formatHours(total))
+	right := fmt.Sprintf("%d logs · %s", len(p.logs), formatTotal(total))
 	if p.loading {
 		right = p.spinner.View()
 	}
