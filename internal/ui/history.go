@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"jirassic-capstone/internal/jira"
+	"jirassic-capstone/internal/worklog"
 )
 
 // How far back the history panel looks
@@ -55,11 +57,8 @@ func fetchHistory(client *jira.Client, user jira.User, seq int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-
-		// From midnight historyDays ago up to the end of today
-		now := time.Now()
-		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		logs, err := client.GetWorklogs(ctx, user, today.AddDate(0, 0, -historyDays), today.AddDate(0, 0, 1))
+		from, to := worklog.RecentRange(time.Now(), historyDays)
+		logs, err := client.GetWorklogs(ctx, user, from, to)
 		return historyLoadedMsg{seq: seq, logs: logs, err: err}
 	}
 }
@@ -100,10 +99,8 @@ func (p historyPanel) Update(msg tea.Msg) (historyPanel, tea.Cmd) {
 
 // Reverses worklogs that arrive oldest first
 func newestFirst(logs []jira.Worklog) []jira.Worklog {
-	out := make([]jira.Worklog, len(logs))
-	for i, l := range logs {
-		out[len(logs)-1-i] = l
-	}
+	out := slices.Clone(logs)
+	slices.Reverse(out)
 	return out
 }
 
@@ -119,10 +116,9 @@ func (p historyPanel) View(width, height int) string {
 	if p.loading {
 		right = p.spinner.View()
 	}
-	gap := max(width-len([]rune(label))-len([]rune(right)), 1)
 
 	var b strings.Builder
-	b.WriteString(titleStyle.Render(label) + strings.Repeat(" ", gap) + right)
+	b.WriteString(headerLine(label, right, width))
 
 	switch {
 	case p.err != "":
@@ -133,10 +129,7 @@ func (p historyPanel) View(width, height int) string {
 		return b.String()
 	}
 
-	// Scroll the list so the selected worklog stays visible
-	visible := max(height-1, 1)
-	start := max(p.selected-visible+1, 0)
-	end := min(start+visible, len(p.logs))
+	start, end := visibleRange(p.selected, max(height-1, 1), len(p.logs))
 	keyW := 0
 	for _, l := range p.logs {
 		keyW = max(keyW, len(l.IssueKey))
@@ -155,11 +148,11 @@ func (p historyPanel) View(width, height int) string {
 // One worklog: date (and time when there's room), key, hours, then as much of the title as fits
 func historyRow(l jira.Worklog, width, keyW int) string {
 	layout := "Jan 02"
-	if width >= 50 {
+	if width >= narrowWidth {
 		layout = "Jan 02 15:04"
 	}
 	hours := formatHours(l.Duration) + "h"
-	row := fmt.Sprintf("%s  %-*s %5s  %s", l.Started.Local().Format(layout), keyW, l.IssueKey, hours, l.IssueSummary)
+	row := fmt.Sprintf("%s  %-*s %5s  %s", l.Started.Format(layout), keyW, l.IssueKey, hours, l.IssueSummary)
 	return truncate(row, width)
 }
 

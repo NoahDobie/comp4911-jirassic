@@ -49,8 +49,6 @@ func (s setupModel) Update(msg tea.Msg) (setupModel, tea.Cmd) {
 		}
 	}
 
-	// tea.Cmd is a function that returns a tea.Msg
-	// Update the focused input field and return the command to update the UI
 	var cmd tea.Cmd
 	s.inputs[s.focus], cmd = s.inputs[s.focus].Update(msg)
 	return s, cmd
@@ -74,7 +72,7 @@ func (s setupModel) submit() (setupModel, tea.Cmd) {
 	return s, func() tea.Msg { return setupSubmitMsg{url: jiraURL, token: token} }
 }
 
-// validateSetup checks if the Jira URL and PAT are valid
+// Checks the Jira URL and PAT are filled in properly
 func validateSetup(jiraURL, token string) error {
 	u, err := url.Parse(jiraURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
@@ -86,8 +84,7 @@ func validateSetup(jiraURL, token string) error {
 	return nil
 }
 
-// View renders the setup screen with the input fields and any error messages
-// It also provides instructions for the user on how to navigate
+// Setup form with any error and key help
 func (s setupModel) View() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Jirassic setup") + "\n\n")

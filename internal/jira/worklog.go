@@ -15,8 +15,7 @@ import (
 // Jira's expected format for the "started" field
 const timeLayout = "2006-01-02T15:04:05.000-0700"
 
-// Posts a worklog to an issue and returns the new worklog ID
-// Requires: IssueKey must be a valid Jira issue key on the board/backlog, Duration must be > 0, Started must be a valid time
+// Body for posting a worklog
 type addWorklogRequest struct {
 	TimeSpent string `json:"timeSpent"`
 	Started   string `json:"started"`
@@ -44,10 +43,7 @@ func (c *Client) AddWorklog(ctx context.Context, e worklog.Entry) (string, error
 // Max issues searched when fetching worklogs for a date range
 const worklogIssueLimit = 500
 
-// Max issues whose worklogs are fetched at the same time
-// This is a tradeoff between speed and memory usage.
-// Each issue's worklogs are fetched in a separate goroutine,
-// If the number of issues is large, this can use a lot of memory...
+// Max issues whose worklogs are fetched at once, to limit goroutines and open requests
 const worklogWorkers = 5
 
 // Worklog already logged in Jira
@@ -61,10 +57,8 @@ type Worklog struct {
 }
 
 type worklogResponse struct {
-	StartAt    int `json:"startAt"`
-	MaxResults int `json:"maxResults"`
-	Total      int `json:"total"`
-	Worklogs   []struct {
+	Total    int `json:"total"`
+	Worklogs []struct {
 		ID               string `json:"id"`
 		Author           User   `json:"author"`
 		Started          string `json:"started"`
@@ -75,10 +69,7 @@ type worklogResponse struct {
 
 // Returns the user's worklogs started in (from, to) with oldest first
 func (c *Client) GetWorklogs(ctx context.Context, user User, from, to time.Time) ([]Worklog, error) {
-	// worklogDate only matches whole days in Jira's timezone, so searching a day wider on each side, then filter by exact start time
-	jql := fmt.Sprintf(`worklogAuthor = currentUser() AND worklogDate >= "%s" AND worklogDate <= "%s"`,
-		from.AddDate(0, 0, -1).Format("2006-01-02"), to.AddDate(0, 0, 1).Format("2006-01-02"))
-	issues, err := c.Search(ctx, jql, worklogIssueLimit)
+	issues, err := c.Search(ctx, worklogJQL(from, to), worklogIssueLimit)
 	if err != nil {
 		return nil, fmt.Errorf("find issues with worklogs: %w", err)
 	}
@@ -111,6 +102,13 @@ func (c *Client) GetWorklogs(ctx context.Context, user User, from, to time.Time)
 	return logs, nil
 }
 
+// JQL for issues with the user's worklogs in (from, to)
+// worklogDate only matches whole days in Jira's timezone, so search a day wider on each side and filter by exact start time after
+func worklogJQL(from, to time.Time) string {
+	return fmt.Sprintf(`worklogAuthor = currentUser() AND worklogDate >= "%s" AND worklogDate <= "%s"`,
+		from.AddDate(0, 0, -1).Format("2006-01-02"), to.AddDate(0, 0, 1).Format("2006-01-02"))
+}
+
 // Returns one issue's worklogs by user started in (from, to) fetching every page
 func (c *Client) issueWorklogs(ctx context.Context, is Issue, user User, from, to time.Time) ([]Worklog, error) {
 	var logs []Worklog
@@ -133,7 +131,7 @@ func (c *Client) issueWorklogs(ctx context.Context, is Issue, user User, from, t
 				ID:           w.ID,
 				IssueKey:     is.Key,
 				IssueSummary: is.Summary,
-				Started:      started,
+				Started:      started.Local(), // Jira returns the server's offset
 				Duration:     time.Duration(w.TimeSpentSeconds) * time.Second,
 				Comment:      w.Comment,
 			})

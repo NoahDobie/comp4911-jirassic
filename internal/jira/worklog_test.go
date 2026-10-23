@@ -143,3 +143,12 @@ func TestGetWorklogsConcurrent(t *testing.T) {
 		t.Errorf("peak requests at once = %d, want 2 to %d", peak, worklogWorkers)
 	}
 }
+
+func TestWorklogJQL(t *testing.T) {
+	from := time.Date(2026, 10, 12, 0, 0, 0, 0, time.Local)
+	to := time.Date(2026, 10, 19, 0, 0, 0, 0, time.Local)
+	want := `worklogAuthor = currentUser() AND worklogDate >= "2026-10-11" AND worklogDate <= "2026-10-20"`
+	if got := worklogJQL(from, to); got != want {
+		t.Errorf("worklogJQL = %s, want %s", got, want)
+	}
+}

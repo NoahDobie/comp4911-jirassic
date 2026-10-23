@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,12 +24,20 @@ type weekLoadedMsg struct {
 
 // One row of the timesheet: time logged to an issue on each day
 type issueRow struct {
-	key   string
-	days  [7]time.Duration
-	total time.Duration
+	key  string
+	days [7]time.Duration
 }
 
-// Panel 2 layout - rows are Jira issue keys, columns are the days of the week.
+// Time logged across the whole week
+func (r issueRow) total() time.Duration {
+	var sum time.Duration
+	for _, d := range r.days {
+		sum += d
+	}
+	return sum
+}
+
+// Panel 2 layout - rows are Jira issue keys, columns are the days of the week
 type timesheetPanel struct {
 	client  *jira.Client
 	user    jira.User
@@ -103,16 +112,12 @@ func (p timesheetPanel) Update(msg tea.Msg) (timesheetPanel, tea.Cmd) {
 func groupByIssue(logs []jira.Worklog) []issueRow {
 	var rows []issueRow
 	for _, l := range logs {
-		i := 0
-		for i < len(rows) && rows[i].key != l.IssueKey {
-			i++
-		}
-		if i == len(rows) {
+		i := slices.IndexFunc(rows, func(r issueRow) bool { return r.key == l.IssueKey })
+		if i < 0 {
 			rows = append(rows, issueRow{key: l.IssueKey})
+			i = len(rows) - 1
 		}
-		day := (int(l.Started.Local().Weekday()) + 6) % 7
-		rows[i].days[day] += l.Duration
-		rows[i].total += l.Duration
+		rows[i].days[worklog.DayIndex(l.Started)] += l.Duration
 	}
 	return rows
 }
@@ -129,28 +134,25 @@ func (p timesheetPanel) View(width, height int) string {
 	now := time.Now()
 	start, end := worklog.WeekRange(now, p.offset)
 
-	// Sum each day across issues, and the whole week
-	var dayTotals [7]time.Duration
-	var week time.Duration
+	// Sum each day across issues
+	totals := issueRow{key: "Total"}
 	for _, r := range p.rows {
 		for d, dur := range r.days {
-			dayTotals[d] += dur
+			totals.days[d] += dur
 		}
-		week += r.total
 	}
 
 	label := start.Format("Jan 2") + " – " + end.AddDate(0, 0, -1).Format("Jan 2")
 	if p.offset == 0 {
 		label += " (this week)"
 	}
-	right := formatHours(week) + "h"
+	right := formatHours(totals.total()) + "h"
 	if p.loading {
 		right = p.spinner.View()
 	}
-	gap := max(width-len([]rune(label))-len([]rune(right)), 1)
 
 	var b strings.Builder
-	b.WriteString(titleStyle.Render(label) + strings.Repeat(" ", gap) + right)
+	b.WriteString(headerLine(label, right, width))
 	if p.err != "" {
 		b.WriteString("\n" + errorStyle.Render(truncate(p.err, width)))
 		return b.String()
@@ -167,7 +169,7 @@ func (p timesheetPanel) View(width, height int) string {
 	header := fmt.Sprintf("%-*s", keyW, "Issue")
 	for d := range shownDays {
 		cell := fmt.Sprintf("%*s", cellWidth, start.AddDate(0, 0, d).Format("Mon"))
-		if p.offset == 0 && d == (int(now.Weekday())+6)%7 {
+		if p.offset == 0 && d == worklog.DayIndex(now) {
 			cell = todayStyle.Render(cell)
 		}
 		header += cell
@@ -196,7 +198,6 @@ func (p timesheetPanel) View(width, height int) string {
 		b.WriteString("\n" + helpStyle.Render(fmt.Sprintf("+%d more", hidden)))
 	}
 
-	totals := issueRow{key: "Total", days: dayTotals, total: week}
 	b.WriteString("\n" + titleStyle.Render(p.rowView(totals, keyW, showTotal)))
 	return b.String()
 }
@@ -208,7 +209,7 @@ func (p timesheetPanel) rowView(r issueRow, keyW int, showTotal bool) string {
 		row += fmt.Sprintf("%*s", cellWidth, formatHours(r.days[d]))
 	}
 	if showTotal {
-		row += fmt.Sprintf("%*s", totalWidth, formatHours(r.total))
+		row += fmt.Sprintf("%*s", totalWidth, formatHours(r.total()))
 	}
 	return row
 }
@@ -219,18 +220,6 @@ func formatHours(d time.Duration) string {
 		return "-"
 	}
 	return fmt.Sprintf("%.1f", math.Round(d.Hours()*10)/10)
-}
-
-// Cuts s to fit in width characters, ending with … if shortened
-func truncate(s string, width int) string {
-	r := []rune(s)
-	if len(r) <= width {
-		return s
-	}
-	if width <= 1 {
-		return string(r[:max(width, 0)])
-	}
-	return string(r[:width-1]) + "…"
 }
 
 // Keys shown in the status bar while this panel is focused

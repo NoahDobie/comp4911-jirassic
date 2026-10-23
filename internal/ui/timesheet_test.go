@@ -35,7 +35,7 @@ func TestGroupByIssue(t *testing.T) {
 	if len(rows) != 3 || rows[0].key != "DEMO-1" || rows[1].key != "DEMO-2" || rows[2].key != "DEMO-3" {
 		t.Fatalf("rows = %+v", rows)
 	}
-	if rows[0].days[0] != 30*time.Minute || rows[0].days[2] != 15*time.Minute || rows[0].total != 45*time.Minute {
+	if rows[0].days[0] != 30*time.Minute || rows[0].days[2] != 15*time.Minute || rows[0].total() != 45*time.Minute {
 		t.Errorf("DEMO-1 = %+v", rows[0])
 	}
 	if rows[2].days[6] != time.Hour {

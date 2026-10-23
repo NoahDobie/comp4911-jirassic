@@ -60,9 +60,7 @@ func newLogPanel(client *jira.Client, actions []config.QuickAction) logPanel {
 	return p
 }
 
-// Focuses or blurs the panel so only the active panel shows a cursor
 // Fills the issue field (e.g. from a search result) and moves on to the time field
-// Comes from the search panel when the user picks an issue to log time against
 func (p logPanel) setIssueKey(key string) logPanel {
 	p.inputs[fieldKey].SetValue(key)
 	p.onButtons, p.cursor = false, fieldDuration
@@ -70,6 +68,7 @@ func (p logPanel) setIssueKey(key string) logPanel {
 	return p.focusCursor()
 }
 
+// Focuses or blurs the panel so only the active panel shows a cursor
 func (p logPanel) setFocused(focused bool) logPanel {
 	p.focused = focused
 	return p.focusCursor()
@@ -212,7 +211,7 @@ func (p logPanel) submit(key, duration, started, comment string) (logPanel, tea.
 // Posts the worklog without blocking the UI
 func addWorklog(client *jira.Client, entry worklog.Entry) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second) // 20 second timeout for Jira connection
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		_, err := client.AddWorklog(ctx, entry)
 		return worklogSubmittedMsg{entry: entry, err: err}

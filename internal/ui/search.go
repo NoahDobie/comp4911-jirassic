@@ -18,7 +18,6 @@ import (
 const searchLimit = 50
 
 // Sent when a search finishes
-// Sends to the main program so it can update the search panel and the issue list
 type searchDoneMsg struct {
 	seq    int
 	issues []jira.Issue
@@ -216,21 +215,24 @@ func (p searchPanel) View(width, height int) string {
 	var b strings.Builder
 	b.WriteString(in.View() + "\n")
 
+	// A status line replaces the results until there are some to show
+	status, hasStatus := "", true
 	switch {
 	case p.loading:
-		b.WriteString(p.spinner.View() + " " + p.loadText)
-		return b.String()
+		status = p.spinner.View() + " " + p.loadText
 	case p.err != "":
-		b.WriteString(errorStyle.Render(truncate(p.err, width)))
-		return b.String()
+		status = errorStyle.Render(truncate(p.err, width))
 	case p.generated:
-		b.WriteString(askStyle.Render(truncate("Check Matcha's JQL, enter to run", width)))
-		return b.String()
+		status = askStyle.Render(truncate("Check Matcha's JQL, enter to run", width))
 	case !p.searched:
-		b.WriteString(helpStyle.Render(truncate("enter search • ↓ results", width)))
-		return b.String()
+		status = helpStyle.Render(truncate("enter search • ↓ results", width))
 	case len(p.results) == 0:
-		b.WriteString(helpStyle.Render("No matching issues"))
+		status = helpStyle.Render("No matching issues")
+	default:
+		hasStatus = false
+	}
+	if hasStatus {
+		b.WriteString(status)
 		return b.String()
 	}
 
@@ -240,10 +242,7 @@ func (p searchPanel) View(width, height int) string {
 	}
 	b.WriteString(helpStyle.Render(count))
 
-	// Scroll the list so the selected result stays visible
-	visible := max(height-2, 1)
-	start := max(p.selected-visible+1, 0)
-	end := min(start+visible, len(p.results))
+	start, end := visibleRange(p.selected, max(height-2, 1), len(p.results))
 	keyW, statusW := p.columnWidths(width)
 	for i := start; i < end; i++ {
 		row := resultRow(p.results[i], width, keyW, statusW)
@@ -262,7 +261,7 @@ func (p searchPanel) columnWidths(width int) (keyW, statusW int) {
 		statusW = max(statusW, len([]rune(is.Status)))
 	}
 	statusW = min(statusW, 14)
-	if width < 50 {
+	if width < narrowWidth {
 		statusW = 0
 	}
 	return keyW, statusW

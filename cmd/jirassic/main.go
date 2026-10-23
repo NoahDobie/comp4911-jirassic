@@ -11,7 +11,6 @@ import (
 )
 
 func main() {
-	// run the program and handle errors
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "jirassic:", err)
 		os.Exit(1)
@@ -19,15 +18,15 @@ func main() {
 }
 
 func run() error {
-	path, err := config.Path() // get the config path
+	path, err := config.Path()
 	if err != nil {
-		return err // if the config path is not found, return an error
+		return err
 	}
-	cfg, err := config.Load(path) // load the config from the config path
+	cfg, err := config.Load(path)
 	if err != nil {
-		return err // if the config is not found, return an error
+		return err
 	}
 
-	_, err = tea.NewProgram(ui.New(cfg, path), tea.WithAltScreen()).Run() // run the UI
+	_, err = tea.NewProgram(ui.New(cfg, path), tea.WithAltScreen()).Run()
 	return err
 }

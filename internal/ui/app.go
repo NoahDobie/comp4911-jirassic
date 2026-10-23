@@ -48,7 +48,6 @@ type Model struct {
 	setup   setupModel
 	spinner spinner.Model
 
-	client    *jira.Client
 	user      jira.User
 	worklog   logPanel
 	timesheet timesheetPanel
@@ -60,7 +59,7 @@ type Model struct {
 	saveOnVerify  bool
 }
 
-// New creates a new Model with the given config and config path
+// Root model, starting at setup or the connection check
 func New(cfg config.Config, cfgPath string) Model {
 	m := Model{
 		cfg:       cfg,
@@ -89,10 +88,10 @@ func (m Model) Init() tea.Cmd {
 // Checks the connection in the background so the UI is never blocked
 func verify(jiraURL, token string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second) // 20 second timeout for Jira connection
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		client := jira.NewClient(jiraURL, token) // create a new Jira client
-		user, err := client.CurrentUser(ctx)     // get the current user from Jira
+		client := jira.NewClient(jiraURL, token)
+		user, err := client.CurrentUser(ctx)
 		return verifyMsg{client: client, user: user, err: err}
 	}
 }
@@ -100,21 +99,22 @@ func verify(jiraURL, token string) tea.Cmd {
 // Handles messages from the UI and updates the model accordingly
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.WindowSizeMsg: // update the model with the new window size
+	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
-	case setupSubmitMsg: // when the user submits the setup for Jira, update the model with the new Jira URL and token, and start verifying the connection
+	case setupSubmitMsg:
+		// Verify the new details before saving them
 		m.cfg.JiraURL, m.cfg.JiraToken = msg.url, msg.token
 		m.state = stateVerifying
 		m.saveOnVerify = true
 		return m, tea.Batch(m.spinner.Tick, verify(msg.url, msg.token))
 	case verifyMsg:
 		return m.handleVerify(msg)
-	case spinner.TickMsg: // update the spinner if we are in the verifying state
+	case spinner.TickMsg:
 		// Ticks for other spinners fall through to the panels
 		if m.state == stateVerifying {
 			var cmd tea.Cmd
@@ -124,11 +124,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.state {
-	case stateSetup: // update the setup model if we are in the setup state
+	case stateSetup:
 		var cmd tea.Cmd
 		m.setup, cmd = m.setup.Update(msg)
 		return m, cmd
-	case stateReady: // update the ready model if we are in the ready state
+	case stateReady:
 		return m.updateReady(msg)
 	}
 	return m, nil
@@ -150,7 +150,7 @@ func (m Model) handleVerify(msg verifyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.saveOnVerify = false
 	}
-	m.client, m.user, m.state = msg.client, msg.user, stateReady
+	m.user, m.state = msg.user, stateReady
 	m.worklog.client = msg.client
 	m.worklog = m.worklog.setFocused(m.focus == 0)
 	m.search.client = msg.client
@@ -233,8 +233,7 @@ func (m Model) View() string {
 		return fmt.Sprintf("Terminal too small (%dx%d), need a minimum size of: %dx%d", m.width, m.height, minWidth, minHeight)
 	}
 
-	// Render the 2x2 grid of panels with a status bar at the bottom
-	// Calculate the sizes of the panels based on the terminal size
+	// 2x2 grid of panels with a status bar at the bottom
 	leftW, rightW, topH, bottomH := gridSizes(m.width, m.height)
 	top := lipgloss.JoinHorizontal(lipgloss.Top, m.panel(0, leftW, topH), m.panel(1, rightW, topH))
 	bottom := lipgloss.JoinHorizontal(lipgloss.Top, m.panel(2, leftW, bottomH), m.panel(3, rightW, bottomH))

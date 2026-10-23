@@ -5,6 +5,30 @@ import (
 	"time"
 )
 
+func TestDayIndex(t *testing.T) {
+	tests := []struct {
+		day  int // October 2026, the 12th is a Monday
+		want int
+	}{
+		{12, 0}, {14, 2}, {16, 4}, {18, 6},
+	}
+	for _, tt := range tests {
+		if got := DayIndex(time.Date(2026, 10, tt.day, 9, 0, 0, 0, time.Local)); got != tt.want {
+			t.Errorf("DayIndex(Oct %d) = %d, want %d", tt.day, got, tt.want)
+		}
+	}
+}
+
+func TestRecentRange(t *testing.T) {
+	now := time.Date(2026, 10, 14, 13, 30, 0, 0, time.Local)
+	start, end := RecentRange(now, 14)
+	wantStart := time.Date(2026, 9, 30, 0, 0, 0, 0, time.Local)
+	wantEnd := time.Date(2026, 10, 15, 0, 0, 0, 0, time.Local)
+	if !start.Equal(wantStart) || !end.Equal(wantEnd) {
+		t.Errorf("RecentRange = %v - %v, want %v - %v", start, end, wantStart, wantEnd)
+	}
+}
+
 func TestWeekStart(t *testing.T) {
 	monday := time.Date(2026, 10, 12, 0, 0, 0, 0, time.Local)
 	tests := []time.Time{
