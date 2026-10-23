@@ -17,7 +17,7 @@ import (
 
 type state int
 
-// Three states of the UI- setup, verifying, and ready
+// Three states of the UI- setup (settings form, not connected yet), verifying, and ready
 const (
 	stateSetup state = iota
 	stateVerifying
@@ -40,12 +40,11 @@ type verifyMsg struct {
 	err    error
 }
 
-// Root: setup screen, connection check, then the four-panel grid
+// Root: connection check or settings form, then the four-panel grid
 type Model struct {
 	cfg     config.Config
 	cfgPath string
 	state   state
-	setup   setupModel
 	spinner spinner.Model
 
 	user      jira.User
@@ -55,20 +54,19 @@ type Model struct {
 	history   historyPanel
 
 	settings     settingsModel
-	showSettings bool
+	showSettings bool // open over the panels with ctrl+x
 
 	focus         int
 	width, height int
-	saveOnVerify  bool
 }
 
-// Root model, starting at setup or the connection check
+// Root model, starting at the settings form or the connection check
 func New(cfg config.Config, cfgPath string) Model {
 	m := Model{
 		cfg:       cfg,
 		cfgPath:   cfgPath,
 		state:     stateSetup,
-		setup:     newSetup(cfg.JiraURL, cfg.JiraToken),
+		settings:  newSettings(cfg),
 		spinner:   spinner.New(),
 		worklog:   newLogPanel(nil, cfg.QuickActions),
 		timesheet: newTimesheet(),
@@ -109,17 +107,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
-	case setupSubmitMsg:
-		// Verify the new details before saving them
-		m.cfg.JiraURL, m.cfg.JiraToken = msg.url, msg.token
-		m.state = stateVerifying
-		m.saveOnVerify = true
-		return m, tea.Batch(m.spinner.Tick, verify(msg.url, msg.token))
 	case verifyMsg:
-		if m.showSettings {
-			return m.handleSettingsVerify(msg)
-		}
 		return m.handleVerify(msg)
+	case settingsSaveMsg:
+		return m.saveSettings(msg.cfg)
 	case spinner.TickMsg:
 		// Ticks for other spinners fall through to the panels
 		if m.state == stateVerifying {
@@ -132,7 +123,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.state {
 	case stateSetup:
 		var cmd tea.Cmd
-		m.setup, cmd = m.setup.Update(msg)
+		m.settings, cmd = m.settings.Update(msg)
 		return m, cmd
 	case stateReady:
 		return m.updateReady(msg)
@@ -140,23 +131,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// On failure, return to setup with the error so the user can fix their details
+// Connects on success, saving details that came from the settings form
+// On failure the settings form shows the error so the user can fix their details
 func (m Model) handleVerify(msg verifyMsg) (tea.Model, tea.Cmd) {
+	m.settings.checking = false
 	if msg.err != nil {
-		m.state = stateSetup
-		m.setup.err = msg.err.Error()
+		if m.state == stateVerifying {
+			// The saved details failed at launch
+			m.state = stateSetup
+		}
+		m.settings.err = msg.err.Error()
 		return m, textinput.Blink
 	}
-	// Only save details that have been verified
-	if m.saveOnVerify {
-		if err := config.Save(m.cfgPath, m.cfg); err != nil {
-			m.state = stateSetup
-			m.setup.err = err.Error()
+	// The launch check uses details that are already saved
+	if m.state != stateVerifying {
+		if err := config.Save(m.cfgPath, m.settings.pending); err != nil {
+			m.settings.err = err.Error()
 			return m, nil
 		}
-		m.saveOnVerify = false
+		m.cfg = m.settings.pending
 	}
-	m.state = stateReady
+	m.state, m.showSettings = stateReady, false
 	return m.connect(msg)
 }
 
@@ -187,9 +182,9 @@ func (m Model) applyConfig(cfg config.Config) Model {
 	return m
 }
 
-// Saves new settings, checking the Jira connection first if those details changed
+// Saves new settings, checking the Jira connection first if not connected yet or those details changed
 func (m Model) saveSettings(cfg config.Config) (tea.Model, tea.Cmd) {
-	if cfg.JiraURL != m.cfg.JiraURL || cfg.JiraToken != m.cfg.JiraToken {
+	if m.state == stateSetup || cfg.JiraURL != m.cfg.JiraURL || cfg.JiraToken != m.cfg.JiraToken {
 		m.settings.checking, m.settings.pending = true, cfg
 		return m, tea.Batch(m.settings.spinner.Tick, verify(cfg.JiraURL, cfg.JiraToken))
 	}
@@ -199,21 +194,6 @@ func (m Model) saveSettings(cfg config.Config) (tea.Model, tea.Cmd) {
 	}
 	m.showSettings = false
 	return m.applyConfig(cfg), textinput.Blink
-}
-
-// Keeps settings open with the error if the new Jira details fail, otherwise saves and reconnects
-func (m Model) handleSettingsVerify(msg verifyMsg) (tea.Model, tea.Cmd) {
-	m.settings.checking = false
-	if msg.err != nil {
-		m.settings.err = msg.err.Error()
-		return m, nil
-	}
-	if err := config.Save(m.cfgPath, m.settings.pending); err != nil {
-		m.settings.err = err.Error()
-		return m, nil
-	}
-	m.cfg, m.showSettings = m.settings.pending, false
-	return m.connect(msg)
 }
 
 // Handles key presses when the UI is in the ready state, allowing the user to switch between panels
@@ -229,6 +209,7 @@ func (m Model) updateReady(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch key.String() {
 		case "ctrl+x":
 			m.settings, m.showSettings = newSettings(m.cfg), true
+			m.settings.canClose = true
 			return m, textinput.Blink
 		case "shift+tab":
 			return m.setFocus((m.focus + 1) % panelCount), nil
@@ -258,8 +239,6 @@ func (m Model) updateReady(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case settingsCloseMsg:
 		m.showSettings = false
 		return m, textinput.Blink
-	case settingsSaveMsg:
-		return m.saveSettings(msg.cfg)
 	}
 
 	// Non-key messages (results, spinner ticks) reach every panel, and settings when open
@@ -291,16 +270,13 @@ func (m Model) setFocus(i int) Model {
 
 // Renders the UI based on the current state and size of the terminal
 func (m Model) View() string {
-	switch m.state {
-	case stateSetup:
-		return m.setup.View()
-	case stateVerifying:
+	if m.state == stateVerifying {
 		return m.spinner.View() + " Connecting to Jira..."
 	}
 	if m.width < minWidth || m.height < minHeight {
 		return fmt.Sprintf("Terminal too small (%dx%d), need a minimum size of: %dx%d", m.width, m.height, minWidth, minHeight)
 	}
-	if m.showSettings {
+	if m.state == stateSetup || m.showSettings {
 		return m.settings.View(m.width, m.height)
 	}
 

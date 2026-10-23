@@ -76,42 +76,92 @@ func TestFocusKeys(t *testing.T) {
 	}
 }
 
-// Tests that a successful verification saves the config to the specified path
-func TestVerifySuccessSavesConfig(t *testing.T) {
+// First run: details from the settings form are checked, then saved
+func TestFirstRunSavesVerifiedConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	m := New(config.Config{}, path)
 
-	m = update(t, m, setupSubmitMsg{url: "https://jira.example.com", token: "test-token"})
-	if m.state != stateVerifying {
-		t.Fatalf("state = %v, want verifying", m.state)
+	m = update(t, m, settingsSaveMsg{cfg: testCfg})
+	if !m.settings.checking {
+		t.Fatal("details should be checked before saving")
 	}
 
 	m = update(t, m, verifyMsg{user: jira.User{DisplayName: "Jane Doe"}})
 	if m.state != stateReady || m.user.DisplayName != "Jane Doe" {
 		t.Fatalf("expected ready state with user, got %v %+v", m.state, m.user)
 	}
+	if len(m.worklog.actions) != 1 {
+		t.Errorf("log panel has %d quick actions, want 1", len(m.worklog.actions))
+	}
 
 	saved, err := config.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.JiraURL != "https://jira.example.com" || saved.JiraToken != "test-token" {
+	if saved.JiraURL != testCfg.JiraURL || saved.JiraToken != testCfg.JiraToken {
 		t.Errorf("config not saved: %+v", saved)
 	}
 }
 
-func TestVerifyFailureReturnsToSetup(t *testing.T) {
+func TestFirstRunFailedCheckStaysInSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	m := New(config.Config{}, path)
 
-	m = update(t, m, setupSubmitMsg{url: "https://jira.example.com", token: "bad-token"})
+	m = update(t, m, settingsSaveMsg{cfg: testCfg})
 	m = update(t, m, verifyMsg{err: errors.New("Authentication failed")})
 
-	if m.state != stateSetup || m.setup.err != "Authentication failed" {
-		t.Errorf("expected setup with error, got %v %q", m.state, m.setup.err)
+	if m.state != stateSetup || m.settings.err != "Authentication failed" || m.settings.checking {
+		t.Errorf("expected settings with error, got %v %q", m.state, m.settings.err)
 	}
 	if saved, _ := config.Load(path); saved.HasJira() {
 		t.Error("unverified details should not be saved")
+	}
+}
+
+// FR-18: a saved connection that fails at launch opens settings, and saving checks it again
+func TestLaunchVerifyFailureReprompts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	saved := config.Config{JiraURL: "https://jira.example.com", JiraToken: "expired-token"}
+	if err := config.Save(path, saved); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(saved, path)
+	if m.state != stateVerifying {
+		t.Fatalf("state = %v, want verifying on launch", m.state)
+	}
+	m = update(t, m, verifyMsg{err: errors.New("Authentication failed")})
+
+	if m.state != stateSetup || m.settings.err != "Authentication failed" {
+		t.Fatalf("expected settings with error, got %v %q", m.state, m.settings.err)
+	}
+	if m.settings.inputs[setJiraURL].Value() != saved.JiraURL || m.settings.inputs[setJiraToken].Value() != saved.JiraToken {
+		t.Error("settings should be filled in with the saved details to fix")
+	}
+
+	// Saving unchanged details still checks them, e.g. after fixing the token in Jira
+	m = update(t, m, settingsSaveMsg{cfg: saved})
+	if !m.settings.checking {
+		t.Fatal("saving at launch should always check the connection")
+	}
+	m = update(t, m, verifyMsg{user: jira.User{DisplayName: "Jane Doe"}})
+	if m.state != stateReady {
+		t.Fatalf("state = %v, want ready after the check passes", m.state)
+	}
+}
+
+// Esc can't close settings at launch since there are no panels to go back to
+func TestSettingsEscOnlyClosesWhenConnected(t *testing.T) {
+	esc := tea.KeyMsg{Type: tea.KeyEsc}
+	s := newSettings(testCfg)
+	if _, cmd := s.Update(esc); cmd != nil {
+		t.Error("esc should do nothing at launch")
+	}
+	s.canClose = true
+	if _, cmd := s.Update(esc); cmd == nil {
+		t.Fatal("esc should close settings opened with ctrl+x")
+	} else if _, ok := cmd().(settingsCloseMsg); !ok {
+		t.Error("esc should send settingsCloseMsg")
 	}
 }
 
@@ -127,8 +177,8 @@ func TestVerifyCmd(t *testing.T) {
 	}
 }
 
-// Ensures that the validateSetup function correctly validates the Jira URL and PAT
-func TestValidateSetup(t *testing.T) {
+// Ensures that validateJira correctly validates the Jira URL and PAT
+func TestValidateJira(t *testing.T) {
 	tests := []struct {
 		url, token string
 		ok         bool
@@ -140,9 +190,9 @@ func TestValidateSetup(t *testing.T) {
 		{"https://jira.example.com", "", false},
 	}
 	for _, tt := range tests {
-		err := validateSetup(tt.url, tt.token)
+		err := validateJira(tt.url, tt.token)
 		if (err == nil) != tt.ok {
-			t.Errorf("validateSetup(%q, %q) error = %v", tt.url, tt.token, err)
+			t.Errorf("validateJira(%q, %q) error = %v", tt.url, tt.token, err)
 		}
 	}
 }

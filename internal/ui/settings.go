@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -52,6 +53,7 @@ type settingsCloseMsg struct{}
 type settingsModel struct {
 	inputs   []textinput.Model // connection fields, then actionFieldCount per quick action
 	cursor   int
+	canClose bool          // false at launch, when there's no panel view to go back to
 	checking bool          // true while new Jira details are being verified
 	pending  config.Config // settings waiting on that check
 	spinner  spinner.Model
@@ -147,6 +149,9 @@ func (s settingsModel) Update(msg tea.Msg) (settingsModel, tea.Cmd) {
 func (s settingsModel) handleKey(key tea.KeyMsg) (settingsModel, tea.Cmd) {
 	switch key.String() {
 	case "esc":
+		if !s.canClose {
+			return s, nil
+		}
 		return s, func() tea.Msg { return settingsCloseMsg{} }
 	case "tab", "down":
 		s.cursor = (s.cursor + 1) % len(s.inputs)
@@ -184,7 +189,7 @@ func (s settingsModel) config() (config.Config, error) {
 		MatchaURL: val(setMatchaURL),
 		MatchaKey: val(setMatchaKey),
 	}
-	if err := validateSetup(cfg.JiraURL, cfg.JiraToken); err != nil {
+	if err := validateJira(cfg.JiraURL, cfg.JiraToken); err != nil {
 		return cfg, err
 	}
 
@@ -213,6 +218,18 @@ func (s settingsModel) config() (config.Config, error) {
 	return cfg, cfg.ValidateQuickActions()
 }
 
+// Checks the Jira URL and PAT are filled in properly
+func validateJira(jiraURL, token string) error {
+	u, err := url.Parse(jiraURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return errors.New("Enter a full Jira URL, ex. https://jira.example.com")
+	}
+	if token == "" {
+		return errors.New("Enter your Jira personal access token")
+	}
+	return nil
+}
+
 // Pop-up box centered in a width x height screen
 func (s settingsModel) View(width, height int) string {
 	boxW := min(width, settingsMaxWidth)
@@ -222,11 +239,11 @@ func (s settingsModel) View(width, height int) string {
 	b.WriteString(titleStyle.Render("Settings") + "\n\n")
 	b.WriteString(titleStyle.Render("Jira") + "\n")
 	b.WriteString(s.fieldView(setJiraURL, w) + "\n" + s.fieldView(setJiraToken, w) + "\n\n")
-	b.WriteString(titleStyle.Render("Matcha") + helpStyle.Render(" (optional, for plain English search)") + "\n")
+	b.WriteString(titleStyle.Render("Matcha") + helpStyle.Render(" (optional)") + "\n")
 	for i := setMatchaURL; i <= setMatchaMission; i++ {
 		b.WriteString(s.fieldView(i, w) + "\n")
 	}
-	b.WriteString("\n" + titleStyle.Render(fmt.Sprintf("Quick actions (%d)", s.actionCount())) + "\n")
+	b.WriteString("\n" + titleStyle.Render(fmt.Sprintf("Quick actions (%d)", s.actionCount())) + helpStyle.Render(" (optional)") + "\n")
 	b.WriteString(s.actionsView(w, height-settingsChrome) + "\n\n")
 	b.WriteString(s.statusView(w))
 
@@ -281,11 +298,15 @@ func (s settingsModel) statusView(width int) string {
 	status := ""
 	switch {
 	case s.checking:
-		status = s.spinner.View() + " Checking the new Jira details..."
+		status = s.spinner.View() + " Checking the Jira details..."
 	case s.err != "":
 		status = errorStyle.Render(truncate(s.err, width))
 	}
-	help := helpStyle.Render(truncate("enter: save • esc: close without saving", width)) + "\n" +
+	save := "enter: save and connect • ctrl+c: quit"
+	if s.canClose {
+		save = "enter: save • esc: close without saving"
+	}
+	help := helpStyle.Render(truncate(save, width)) + "\n" +
 		helpStyle.Render(truncate("↑/↓/tab: move • ctrl+n: add action • ctrl+d: delete action", width))
 	return status + "\n" + help
 }
