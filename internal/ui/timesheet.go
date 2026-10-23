@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"jirassic-capstone/internal/jira"
 	"jirassic-capstone/internal/worklog"
@@ -122,12 +123,48 @@ func groupByIssue(logs []jira.Worklog) []issueRow {
 	return rows
 }
 
-const (
-	shownDays  = 5 // Mon to Fri
-	cellWidth  = 5
-	totalWidth = 6
-	minKeyW    = 9
+const minKeyW = 9
+
+// Grid lines between cells
+var (
+	cellSep = helpStyle.Render("│")
+	ruleSep = helpStyle.Render("┼")
 )
+
+// Column widths for the grid, not counting the separator in front of each day and total cell
+type gridLayout struct {
+	keyW, dayW, totalW int
+	days               int    // 7 for the whole week, 5 for Mon to Fri
+	pad                string // space after each value so it doesn't touch the next separator
+	showTotal          bool
+}
+
+// Picks the roomiest layout that still leaves minKeyW for issue keys
+// Narrow panels drop the padding first, then the total column, then the weekend
+func timesheetLayout(width int) gridLayout {
+	layouts := []gridLayout{
+		{days: 7, dayW: 5, totalW: 7, pad: " ", showTotal: true}, // "12.5 " and " Total "
+		{days: 7, dayW: 4, totalW: 5, showTotal: true},
+		{days: 7, dayW: 4},
+		{days: 5, dayW: 4},
+	}
+	var l gridLayout
+	for _, l = range layouts {
+		l.keyW = width - (l.dayW+1)*l.days
+		if l.showTotal {
+			l.keyW -= l.totalW + 1
+		}
+		if l.keyW >= minKeyW {
+			break
+		}
+	}
+	return l
+}
+
+// Right-aligns s in a cell of width w, leaving room for the layout's padding
+func (l gridLayout) cell(s string, w int) string {
+	return fmt.Sprintf("%*s%s", w-len(l.pad), s, l.pad)
+}
 
 // Renders the panel body to fit inside width x height
 func (p timesheetPanel) View(width, height int) string {
@@ -158,26 +195,21 @@ func (p timesheetPanel) View(width, height int) string {
 		return b.String()
 	}
 
-	// The key column gets the space left over; the total column only shows when there's room
-	showTotal := width-cellWidth*shownDays-totalWidth >= minKeyW
-	keyW := width - cellWidth*shownDays
-	if showTotal {
-		keyW -= totalWidth
-	}
-
-	// Column headings and today column highlighted
-	header := fmt.Sprintf("%-*s", keyW, "Issue")
-	for d := range shownDays {
-		cell := fmt.Sprintf("%*s", cellWidth, start.AddDate(0, 0, d).Format("Mon"))
+	// Column headings with today highlighted
+	l := timesheetLayout(width)
+	header := helpStyle.Render(fmt.Sprintf("%-*s", l.keyW, "Issue"))
+	for d := range l.days {
+		style := helpStyle
 		if p.offset == 0 && d == worklog.DayIndex(now) {
-			cell = todayStyle.Render(cell)
+			style = todayStyle
 		}
-		header += cell
+		header += cellSep + style.Render(l.cell(start.AddDate(0, 0, d).Format("Mon"), l.dayW))
 	}
-	if showTotal {
-		header += fmt.Sprintf("%*s", totalWidth, "Total")
+	if l.showTotal {
+		header += cellSep + helpStyle.Render(l.cell("Total", l.totalW))
 	}
-	b.WriteString("\n" + helpStyle.Render(header))
+	rule := l.rule()
+	b.WriteString("\n" + header + "\n" + rule)
 
 	if len(p.rows) == 0 {
 		if !p.loading {
@@ -186,32 +218,44 @@ func (p timesheetPanel) View(width, height int) string {
 		return b.String()
 	}
 
-	// Leave room for the label, headings, and day totals
+	// Leave room for the label, headings, two rules, and day totals
 	rows := p.rows
-	if fit := max(height-3, 1); len(rows) > fit {
+	if fit := max(height-5, 1); len(rows) > fit {
 		rows = rows[:fit-1]
 	}
 	for _, r := range rows {
-		b.WriteString("\n" + p.rowView(r, keyW, showTotal))
+		b.WriteString("\n" + l.row(r, lipgloss.NewStyle()))
 	}
 	if hidden := len(p.rows) - len(rows); hidden > 0 {
 		b.WriteString("\n" + helpStyle.Render(fmt.Sprintf("+%d more", hidden)))
 	}
 
-	b.WriteString("\n" + titleStyle.Render(p.rowView(totals, keyW, showTotal)))
+	b.WriteString("\n" + rule + "\n" + l.row(totals, titleStyle))
 	return b.String()
 }
 
-// One row of the grid - issue key, then day of week sums
-func (p timesheetPanel) rowView(r issueRow, keyW int, showTotal bool) string {
-	row := fmt.Sprintf("%-*s", keyW, truncate(r.key, keyW-1))
-	for d := range shownDays {
-		row += fmt.Sprintf("%*s", cellWidth, formatHours(r.days[d]))
+// One row of the grid - issue key, then day of week sums, each cell drawn with style
+func (l gridLayout) row(r issueRow, style lipgloss.Style) string {
+	row := style.Render(fmt.Sprintf("%-*s", l.keyW, truncate(r.key, l.keyW-1)))
+	for d := range l.days {
+		row += cellSep + style.Render(l.cell(formatHours(r.days[d]), l.dayW))
 	}
-	if showTotal {
-		row += fmt.Sprintf("%*s", totalWidth, formatHours(r.total()))
+	if l.showTotal {
+		row += cellSep + style.Render(l.cell(formatHours(r.total()), l.totalW))
 	}
 	return row
+}
+
+// Horizontal line across the grid, crossing each column separator
+func (l gridLayout) rule() string {
+	line := helpStyle.Render(strings.Repeat("─", l.keyW))
+	for range l.days {
+		line += ruleSep + helpStyle.Render(strings.Repeat("─", l.dayW))
+	}
+	if l.showTotal {
+		line += ruleSep + helpStyle.Render(strings.Repeat("─", l.totalW))
+	}
+	return line
 }
 
 // Formats a duration as hours to one decimal, ex. 1.5, or a - for nothing logged

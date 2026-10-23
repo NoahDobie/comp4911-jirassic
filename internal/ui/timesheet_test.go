@@ -118,17 +118,20 @@ func TestTimesheetView(t *testing.T) {
 		logAt("DEMO-1", 0, 9, 15*time.Minute),
 		logAt("DEMO-2", 0, 10, 7*time.Hour+45*time.Minute),
 		logAt("DEMO-2", 1, 10, 8*time.Hour),
+		logAt("DEMO-2", 5, 10, 2*time.Hour), // Saturday
 	}})
 
-	lines := strings.Split(p.View(50, 8), "\n")
+	lines := strings.Split(p.View(66, 8), "\n")
 	want := []string{
-		"Issue                Mon  Tue  Wed  Thu  Fri Total",
-		"DEMO-1               0.3    -    -    -    -   0.3",
-		"DEMO-2               7.8  8.0    -    -    -  15.8",
-		"Total                8.0  8.0    -    -    -  16.0",
+		"Issue           │ Mon │ Tue │ Wed │ Thu │ Fri │ Sat │ Sun │ Total ",
+		"────────────────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼───────",
+		"DEMO-1          │ 0.3 │   - │   - │   - │   - │   - │   - │   0.3 ",
+		"DEMO-2          │ 7.8 │ 8.0 │   - │   - │   - │ 2.0 │   - │  17.8 ",
+		"────────────────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼───────",
+		"Total           │ 8.0 │ 8.0 │   - │   - │   - │ 2.0 │   - │  18.0 ",
 	}
-	if len(lines) != 5 {
-		t.Fatalf("got %d lines, want label + 4:\n%s", len(lines), strings.Join(lines, "\n"))
+	if len(lines) != 7 {
+		t.Fatalf("got %d lines, want label + 6:\n%s", len(lines), strings.Join(lines, "\n"))
 	}
 	for i, w := range want {
 		if got := stripStyle(lines[i+1]); got != w {
@@ -137,12 +140,34 @@ func TestTimesheetView(t *testing.T) {
 	}
 }
 
-func TestTimesheetNarrowHidesTotal(t *testing.T) {
+// Narrow panels drop the cell padding first, then the total column, then the weekend, so issue keys keep room
+func TestTimesheetLayout(t *testing.T) {
+	tests := []struct {
+		width, keyW, dayW, days int
+		showTotal               bool
+	}{
+		{66, 16, 5, 7, true},
+		{59, 9, 5, 7, true},
+		{58, 17, 4, 7, true},
+		{50, 9, 4, 7, true},
+		{49, 14, 4, 7, false},
+		{43, 18, 4, 5, false},
+		{36, 11, 4, 5, false},
+	}
+	for _, tt := range tests {
+		l := timesheetLayout(tt.width)
+		if l.keyW != tt.keyW || l.dayW != tt.dayW || l.days != tt.days || l.showTotal != tt.showTotal {
+			t.Errorf("timesheetLayout(%d) = %+v", tt.width, l)
+		}
+	}
+}
+
+func TestTimesheetNarrowHidesWeekend(t *testing.T) {
 	p := newTimesheet()
 	p, _ = p.Update(weekLoadedMsg{logs: []jira.Worklog{logAt("DEMO-1", 0, 9, time.Hour)}})
 
 	lines := strings.Split(p.View(36, 8), "\n")
-	if got := stripStyle(lines[1]); got != "Issue        Mon  Tue  Wed  Thu  Fri" {
+	if got := stripStyle(lines[1]); got != "Issue      │ Mon│ Tue│ Wed│ Thu│ Fri" {
 		t.Errorf("header = %q", got)
 	}
 }
@@ -159,8 +184,8 @@ func TestTimesheetTooManyRows(t *testing.T) {
 	if lines := strings.Split(view, "\n"); len(lines) != 8 {
 		t.Errorf("got %d lines, want 8:\n%s", len(lines), view)
 	}
-	if !strings.Contains(view, "+4 more") || !strings.Contains(view, "8.0") {
-		t.Errorf("expected 4 hidden rows and the day total:\n%s", view)
+	if !strings.Contains(view, "+6 more") || !strings.Contains(view, "8.0") {
+		t.Errorf("expected 6 hidden rows and the day total:\n%s", view)
 	}
 }
 
