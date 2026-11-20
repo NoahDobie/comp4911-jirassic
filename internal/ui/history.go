@@ -48,14 +48,21 @@ func (p historyPanel) setFocused(focused bool) historyPanel {
 
 // Starts fetching recent worklogs in the background
 func (p historyPanel) load() (historyPanel, tea.Cmd) {
+	p, tick := p.startLoading()
+	return p, tea.Batch(tick, fetchHistory(p.client, p.user, p.seq))
+}
+
+// Shows the spinner while worklogs load, without starting a fetch itself
+// The new seq means results from any earlier load are ignored
+func (p historyPanel) startLoading() (historyPanel, tea.Cmd) {
 	p.seq++
 	p.loading, p.err = true, ""
-	return p, tea.Batch(p.spinner.Tick, fetchHistory(p.client, p.user, p.seq))
+	return p, p.spinner.Tick
 }
 
 func fetchHistory(client *jira.Client, user jira.User, seq int) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), worklogLoadTimeout)
 		defer cancel()
 		from, to := worklog.RecentRange(time.Now(), historyDays)
 		logs, err := client.GetWorklogs(ctx, user, from, to)

@@ -55,13 +55,23 @@ func newTimesheet() timesheetPanel {
 
 // Starts fetching the selected week in the background
 func (p timesheetPanel) load() (timesheetPanel, tea.Cmd) {
-	p.loading, p.err = true, ""
-	return p, tea.Batch(p.spinner.Tick, fetchWeek(p.client, p.user, p.offset))
+	p, tick := p.startLoading()
+	return p, tea.Batch(tick, fetchWeek(p.client, p.user, p.offset))
 }
+
+// Shows the spinner while worklogs load, without starting a fetch itself
+func (p timesheetPanel) startLoading() (timesheetPanel, tea.Cmd) {
+	p.loading, p.err = true, ""
+	return p, p.spinner.Tick
+}
+
+// Time limit for loading a range of worklogs
+// Shared issues can have thousands of worklogs that Jira only sends all at once
+const worklogLoadTimeout = 2 * time.Minute
 
 func fetchWeek(client *jira.Client, user jira.User, offset int) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), worklogLoadTimeout)
 		defer cancel()
 		from, to := worklog.WeekRange(time.Now(), offset)
 		logs, err := client.GetWorklogs(ctx, user, from, to)

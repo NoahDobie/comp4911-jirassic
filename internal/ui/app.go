@@ -13,6 +13,7 @@ import (
 	"jirassic-capstone/internal/config"
 	"jirassic-capstone/internal/jira"
 	"jirassic-capstone/internal/matcha"
+	"jirassic-capstone/internal/worklog"
 )
 
 type state int
@@ -165,10 +166,74 @@ func (m Model) connect(msg verifyMsg) (tea.Model, tea.Cmd) {
 
 	m.timesheet.client, m.timesheet.user = msg.client, msg.user
 	m.history.client, m.history.user = msg.client, msg.user
+	m, loadCmd := m.reloadWorklogs()
+	return m, tea.Batch(textinput.Blink, loadCmd)
+}
+
+// Sent when one fetch for both the timesheet and history finishes
+type sharedWorklogsMsg struct {
+	week, recent [2]time.Time // each panel's range, so each only gets its own logs
+	seq          int          // history's load number, so an old result can be ignored
+	logs         []jira.Worklog
+	err          error
+}
+
+// Reloads the timesheet and history
+// When the timesheet shows this week, history's last 14 days already cover most of it,
+// so one fetch serves both instead of downloading busy shared issues twice
+func (m Model) reloadWorklogs() (Model, tea.Cmd) {
 	var sheetCmd, historyCmd tea.Cmd
-	m.timesheet, sheetCmd = m.timesheet.load()
-	m.history, historyCmd = m.history.load()
-	return m, tea.Batch(textinput.Blink, sheetCmd, historyCmd)
+	if m.timesheet.offset != 0 {
+		m.timesheet, sheetCmd = m.timesheet.load()
+		m.history, historyCmd = m.history.load()
+		return m, tea.Batch(sheetCmd, historyCmd)
+	}
+
+	m.timesheet, sheetCmd = m.timesheet.startLoading()
+	m.history, historyCmd = m.history.startLoading()
+	now := time.Now()
+	msg := sharedWorklogsMsg{seq: m.history.seq}
+	msg.week[0], msg.week[1] = worklog.WeekRange(now, 0)
+	msg.recent[0], msg.recent[1] = worklog.RecentRange(now, historyDays)
+	return m, tea.Batch(sheetCmd, historyCmd, fetchShared(m.history.client, m.history.user, msg))
+}
+
+// Fetches the worklogs covering both ranges in msg
+func fetchShared(client *jira.Client, user jira.User, msg sharedWorklogsMsg) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), worklogLoadTimeout)
+		defer cancel()
+		from, to := msg.recent[0], msg.recent[1]
+		if msg.week[0].Before(from) {
+			from = msg.week[0]
+		}
+		if msg.week[1].After(to) {
+			to = msg.week[1]
+		}
+		msg.logs, msg.err = client.GetWorklogs(ctx, user, from, to)
+		return msg
+	}
+}
+
+// Worklogs started in (from, to)
+func within(logs []jira.Worklog, from, to time.Time) []jira.Worklog {
+	var out []jira.Worklog
+	for _, l := range logs {
+		if !l.Started.Before(from) && l.Started.Before(to) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// Gives each panel the part of a shared fetch that falls in its own range
+// They then handle it like their own load, including ignoring it if they've moved on
+func (m Model) splitShared(msg sharedWorklogsMsg) Model {
+	week := weekLoadedMsg{offset: 0, logs: within(msg.logs, msg.week[0], msg.week[1]), err: msg.err}
+	recent := historyLoadedMsg{seq: msg.seq, logs: within(msg.logs, msg.recent[0], msg.recent[1]), err: msg.err}
+	m.timesheet, _ = m.timesheet.Update(week)
+	m.history, _ = m.history.Update(recent)
+	return m
 }
 
 // Uses cfg from now on: its quick actions and the optional Matcha client
@@ -239,6 +304,8 @@ func (m Model) updateReady(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case settingsCloseMsg:
 		m.showSettings = false
 		return m, textinput.Blink
+	case sharedWorklogsMsg:
+		return m.splitShared(msg), nil
 	}
 
 	// Non-key messages (results, spinner ticks) reach every panel, and settings when open
@@ -253,8 +320,9 @@ func (m Model) updateReady(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Refresh the timesheet and history after a worklog is added
 	if sub, ok := msg.(worklogSubmittedMsg); ok && sub.err == nil {
-		m.timesheet, sheetCmd = m.timesheet.load()
-		m.history, historyCmd = m.history.load()
+		var loadCmd tea.Cmd
+		m, loadCmd = m.reloadWorklogs()
+		return m, tea.Batch(settingsCmd, logCmd, searchCmd, loadCmd)
 	}
 	return m, tea.Batch(settingsCmd, logCmd, sheetCmd, searchCmd, historyCmd)
 }

@@ -129,3 +129,47 @@ func TestIsBadRequest(t *testing.T) {
 		t.Error("nil is not a bad request")
 	}
 }
+
+// Connection errors leave out the URL and say which time limit was hit
+func TestConnectErrors(t *testing.T) {
+	slow := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+	})
+
+	// Jira too slow for the client's per-request limit
+	slow.http.Transport.(*http.Transport).ResponseHeaderTimeout = 50 * time.Millisecond
+	_, err := slow.CurrentUser(context.Background())
+	if err == nil || err.Error() != "connect to Jira: no response within 30s" {
+		t.Errorf("per-request timeout: got %v", err)
+	}
+
+	// The caller's overall deadline runs out first
+	slow.http.Transport.(*http.Transport).ResponseHeaderTimeout = time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err = slow.CurrentUser(ctx)
+	if err == nil || !strings.HasPrefix(err.Error(), "connect to Jira: the whole request took too long") {
+		t.Errorf("overall deadline: got %v", err)
+	}
+
+	// Nothing listening: the cause is kept but not the URL
+	_, err = NewClient("http://127.0.0.1:1", testToken).CurrentUser(context.Background())
+	if err == nil || strings.Contains(err.Error(), "/rest/api") || !strings.HasPrefix(err.Error(), "connect to Jira: ") {
+		t.Errorf("refused connection: got %v", err)
+	}
+}
+
+// A large response that takes a while to download isn't cut off, as long as Jira starts replying in time
+func TestSlowDownloadNotCutOff(t *testing.T) {
+	c := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		time.Sleep(200 * time.Millisecond)
+		w.Write([]byte(`{"name":"jdoe","displayName":"Jane Doe"}`))
+	})
+	c.http.Transport.(*http.Transport).ResponseHeaderTimeout = 50 * time.Millisecond
+
+	if u, err := c.CurrentUser(context.Background()); err != nil || u.DisplayName != "Jane Doe" {
+		t.Errorf("slow body should still load: %+v, %v", u, err)
+	}
+}
