@@ -11,6 +11,12 @@ personal access token.
 | 3 Search | Find issues with JQL or plain English, then log time to one |
 | 4 History | Your worklogs from the last 14 days |
 
+## Project report and presentation
+
+- **Final project report:** [COMP 4911 Project Report (PDF)](report/COMP%204911%20Project%20Report%20-%20Noah%20Dobie%20T00661661.pdf)
+- **Video presentation and demo:** [COMP 4911 Project Presentation - Jirassic (YouTube)](https://youtu.be/5GNZxanMOtw)
+- **Sprints:** [GitHub milestones](https://github.com/NoahDobie/comp4911-jirassic/milestones?state=closed), one per sprint, with an issue for each feature
+
 ## Build and run
 
 ```bash
